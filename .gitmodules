@@ -1,0 +1,3 @@
+[submodule "serde-teamspeak-querystring"]
+	path = serde-teamspeak-querystring
+	url = https://github.com/KunoiSayami/serde-teamspeak-querystring.git
