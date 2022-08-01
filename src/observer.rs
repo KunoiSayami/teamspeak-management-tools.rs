@@ -225,6 +225,10 @@ pub async fn observer_thread(
                 if is_server_query {
                     continue;
                 }
+                monitor_channel
+                    .send(view.clone().into())
+                    .await
+                    .map(|_| debug!("Notify auto channel thread"))?;
                 sender
                     .send(TelegramData::from_enter(current_time.clone(), view))
                     .await
@@ -259,7 +263,7 @@ pub async fn observer_thread(
                 let view = NotifyClientMovedView::from_query(line)
                     .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
                 monitor_channel
-                    .send(view)
+                    .send(view.into())
                     .await
                     .map(|_| debug!("Notify auto channel thread"))?;
                 continue;

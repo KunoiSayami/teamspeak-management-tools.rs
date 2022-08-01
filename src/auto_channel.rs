@@ -1,4 +1,4 @@
-use crate::datastructures::NotifyClientMovedView;
+use crate::datastructures::notifies::ClientBasicInfo;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use log::{error, info};
@@ -14,7 +14,7 @@ pub static MSG_CREATE_CHANNEL: OnceCell<String> = OnceCell::new();
 pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
 
 pub enum AutoChannelEvent {
-    Update(NotifyClientMovedView),
+    Update(ClientBasicInfo),
     Terminate,
 }
 
@@ -39,7 +39,7 @@ impl AutoChannelInstance {
         }
     }
 
-    pub async fn send(&self, view: NotifyClientMovedView) -> anyhow::Result<bool> {
+    pub async fn send(&self, view: ClientBasicInfo) -> anyhow::Result<bool> {
         if self.sender.is_none() {
             return Ok(false);
         }
@@ -49,7 +49,7 @@ impl AutoChannelInstance {
 
         match self.sender {
             Some(ref sender) => sender
-                .send(AutoChannelEvent::Update(view))
+                .send(AutoChannelEvent::Update(view.into()))
                 .await
                 .map_err(|_| anyhow!("Got error while send event to auto channel staff"))
                 .map(|_| true),

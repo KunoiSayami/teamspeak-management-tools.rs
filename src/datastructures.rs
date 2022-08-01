@@ -151,6 +151,39 @@ pub mod notifies {
     use crate::datastructures::FromQueryString;
     use serde_derive::Deserialize;
 
+    #[derive(Copy, Clone, Debug)]
+    pub struct ClientBasicInfo {
+        channel_id: i64,
+        client_id: i64,
+    }
+
+    impl ClientBasicInfo {
+        pub fn channel_id(&self) -> i64 {
+            self.channel_id
+        }
+        pub fn client_id(&self) -> i64 {
+            self.client_id
+        }
+    }
+
+    impl From<NotifyClientMovedView> for ClientBasicInfo {
+        fn from(view: NotifyClientMovedView) -> Self {
+            Self {
+                channel_id: view.channel_id(),
+                client_id: view.client_id(),
+            }
+        }
+    }
+
+    impl From<NotifyClientEnterView> for ClientBasicInfo {
+        fn from(view: NotifyClientEnterView) -> Self {
+            Self {
+                channel_id: view.channel_id(),
+                client_id: view.client_id(),
+            }
+        }
+    }
+
     #[allow(dead_code)]
     #[derive(Clone, Debug, Deserialize)]
     pub struct NotifyClientMovedView {
@@ -194,6 +227,8 @@ pub mod notifies {
     pub struct NotifyClientEnterView {
         #[serde(rename = "clid")]
         client_id: i64,
+        #[serde(rename = "ctid")]
+        channel_id: i64,
         client_nickname: String,
         client_unique_identifier: String,
         client_country: String,
@@ -211,6 +246,10 @@ pub mod notifies {
         }
         pub fn client_unique_identifier(&self) -> &str {
             &self.client_unique_identifier
+        }
+
+        pub fn channel_id(&self) -> i64 {
+            self.channel_id
         }
     }
 

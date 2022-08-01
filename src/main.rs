@@ -12,7 +12,7 @@ use crate::observer::{observer_thread, telegram_thread};
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use clap::{arg, Command};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, warn, LevelFilter};
 use once_cell::sync::OnceCell;
 use std::hint::unreachable_unchecked;
 use std::path::Path;
@@ -193,7 +193,10 @@ fn main() -> anyhow::Result<()> {
         ])
         .get_matches();
 
-    env_logger::Builder::from_default_env().init();
+    env_logger::Builder::from_default_env()
+        .filter_module("rustls", LevelFilter::Warn)
+        .filter_module("reqwest", LevelFilter::Warn)
+        .init();
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
