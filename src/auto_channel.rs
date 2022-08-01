@@ -1,14 +1,77 @@
+use crate::datastructures::NotifyClientMovedView;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use log::{error, info};
 use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
 use std::collections::HashMap;
+use std::hint::unreachable_unchecked;
 use std::time::Duration;
+use tokio::sync::mpsc;
 
 pub static MSG_CHANNEL_NOT_FOUND: OnceCell<String> = OnceCell::new();
 pub static MSG_CREATE_CHANNEL: OnceCell<String> = OnceCell::new();
 pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
+
+pub enum AutoChannelEvent {
+    Update(NotifyClientMovedView),
+    Terminate,
+}
+
+#[derive(Clone, Debug)]
+pub struct AutoChannelInstance {
+    channel_ids: Vec<i64>,
+    sender: Option<mpsc::Sender<AutoChannelEvent>>,
+}
+
+impl AutoChannelInstance {
+    pub fn channel_ids(&self) -> &Vec<i64> {
+        &self.channel_ids
+    }
+
+    pub async fn send_terminate(&self) -> anyhow::Result<()> {
+        match self.sender {
+            Some(ref sender) => sender
+                .send(AutoChannelEvent::Terminate)
+                .await
+                .map_err(|_| anyhow!("Got error while send terminate to auto channel staff")),
+            None => Ok(()),
+        }
+    }
+
+    pub async fn send(&self, view: NotifyClientMovedView) -> anyhow::Result<bool> {
+        if self.sender.is_none() {
+            return Ok(false);
+        }
+        if !self.channel_ids.iter().any(|id| id == &view.channel_id()) {
+            return Ok(false);
+        }
+
+        match self.sender {
+            Some(ref sender) => sender
+                .send(AutoChannelEvent::Update(view))
+                .await
+                .map_err(|_| anyhow!("Got error while send event to auto channel staff"))
+                .map(|_| true),
+            _ => unsafe { unreachable_unchecked() },
+        }
+    }
+
+    pub fn new_none() -> Self {
+        Self::new(vec![], None)
+    }
+
+    pub fn new(channel_ids: Vec<i64>, sender: Option<mpsc::Sender<AutoChannelEvent>>) -> Self {
+        Self {
+            channel_ids,
+            sender,
+        }
+    }
+
+    pub fn valid(&self) -> bool {
+        self.sender.is_some()
+    }
+}
 
 pub async fn auto_channel_staff(
     mut conn: SocketConn,
@@ -16,7 +79,7 @@ pub async fn auto_channel_staff(
     privilege_group: i64,
     redis_server: String,
     interval: u64,
-    mut receiver: tokio::sync::watch::Receiver<bool>,
+    mut receiver: mpsc::Receiver<AutoChannelEvent>,
     channel_permissions: HashMap<i64, Vec<(u64, i64)>>,
 ) -> anyhow::Result<()> {
     info!(
@@ -42,18 +105,32 @@ pub async fn auto_channel_staff(
         .await
         .map_err(|e| anyhow!("Query server info error: {:?}", e))?;
 
-    info!("Connected: {}", who_am_i.clid());
+    info!("Connected: {}", who_am_i.client_id());
 
-    let mut skip_sleep = false;
+    let mut skip_sleep = true;
     loop {
         if !skip_sleep {
             //std::thread::sleep(Duration::from_millis(interval));
-            if tokio::time::timeout(Duration::from_millis(interval), receiver.changed())
-                .await
-                .is_ok()
-            {
-                info!("Exit!");
-                break;
+            match tokio::time::timeout(Duration::from_secs(30), receiver.recv()).await {
+                Ok(Some(event)) => match event {
+                    AutoChannelEvent::Terminate => break,
+                    AutoChannelEvent::Update(view) => {
+                        if view.client_id() == who_am_i.client_id() {
+                            continue;
+                        }
+                    }
+                },
+                Ok(None) => {
+                    error!("Channel closed!");
+                    break;
+                }
+                Err(_) => {
+                    conn.who_am_i()
+                        .await
+                        .map_err(|e| anyhow!("Got error while doing keep alive {:?}", e))
+                        .ok();
+                    continue;
+                }
             }
         } else {
             skip_sleep = false;
@@ -68,7 +145,7 @@ pub async fn auto_channel_staff(
         };
 
         'outer: for client in clients {
-            if client.client_database_id() == who_am_i.cldbid()
+            if client.client_database_id() == who_am_i.client_database_id()
                 || !monitor_channels.iter().any(|v| *v == client.channel_id())
                 || client.client_type() == 1
             {
@@ -77,7 +154,7 @@ pub async fn auto_channel_staff(
             let key = format!(
                 "ts_autochannel_{}_{server_id}_{pid}",
                 client.client_database_id(),
-                server_id = server_info.virtualserver_unique_identifier(),
+                server_id = server_info.virtual_server_unique_identifier(),
                 pid = client.channel_id()
             );
 
@@ -160,7 +237,7 @@ pub async fn auto_channel_staff(
                 .ok();
 
             if create_new {
-                conn.move_client_to_channel(who_am_i.clid(), client.channel_id())
+                conn.move_client_to_channel(who_am_i.client_id(), client.channel_id())
                     .await
                     .map_err(|e| anyhow!("Unable move self out of channel. {:?}", e))?;
                 //mapper.insert(client.client_database_id(), target_channel);

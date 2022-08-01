@@ -170,10 +170,14 @@ impl SocketConn {
             .map(|mut v| v.remove(0))
     }
 
-    pub(crate) async fn send_text_message(&mut self, clid: i64, text: &str) -> QueryResult<()> {
+    pub(crate) async fn send_text_message(
+        &mut self,
+        client_id: i64,
+        text: &str,
+    ) -> QueryResult<()> {
         let payload = format!(
-            "sendtextmessage targetmode=1 target={clid} msg={text}\n\r",
-            clid = clid,
+            "sendtextmessage targetmode=1 target={client_id} msg={text}\n\r",
+            client_id = client_id,
             text = Self::escape(text)
         );
         self.basic_operation(&payload).await
@@ -213,12 +217,12 @@ impl SocketConn {
 
     pub(crate) async fn move_client_to_channel(
         &mut self,
-        clid: i64,
+        client_id: i64,
         target_channel: i64,
     ) -> QueryResult<()> {
         let payload = format!(
-            "clientmove clid={clid} cid={cid}\n\r",
-            clid = clid,
+            "clientmove clid={client_id} cid={cid}\n\r",
+            client_id = client_id,
             cid = target_channel
         );
         self.basic_operation(payload.as_str()).await
@@ -231,10 +235,10 @@ impl SocketConn {
         group_id: i64,
     ) -> QueryResult<()> {
         let payload = format!(
-            "setclientchannelgroup cgid={group} cid={channel_id} cldbid={cldbid}\n\r",
+            "setclientchannelgroup cgid={group} cid={channel_id} cldbid={client_database_id}\n\r",
             group = group_id,
             channel_id = channel_id,
-            cldbid = client_database_id
+            client_database_id = client_database_id
         );
         self.basic_operation(&payload).await
     }
@@ -263,5 +267,12 @@ impl SocketConn {
     pub async fn register_observer_events(&mut self) -> QueryResult<()> {
         self.basic_operation("servernotifyregister event=server\n\r")
             .await
+    }
+    pub async fn register_auto_channel_events(&mut self, channel_id: i64) -> QueryResult<()> {
+        self.basic_operation(&format!(
+            "servernotifyregister event=channel id={}\n\r",
+            channel_id
+        ))
+        .await
     }
 }

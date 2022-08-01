@@ -19,10 +19,10 @@ pub mod whoami {
     }
 
     impl WhoAmI {
-        pub fn cldbid(&self) -> i64 {
+        pub fn client_database_id(&self) -> i64 {
             self.client_database_id
         }
-        pub fn clid(&self) -> i64 {
+        pub fn client_id(&self) -> i64 {
             self.client_id
         }
     }
@@ -132,7 +132,7 @@ pub mod client {
         use crate::datastructures::client::Client;
         use crate::datastructures::FromQueryString;
 
-        const TEST_STRING: &str = "clid=8 cid=1 client_database_id=1 client_nickname=serveradmin client_type=1 client_unique_identifier=serveradmin";
+        const TEST_STRING: &str = "client_id=8 cid=1 client_database_id=1 client_nickname=serveradmin client_type=1 client_unique_identifier=serveradmin";
 
         #[test]
         fn test() {
@@ -150,6 +150,45 @@ pub mod client {
 pub mod notifies {
     use crate::datastructures::FromQueryString;
     use serde_derive::Deserialize;
+
+    #[allow(dead_code)]
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct NotifyClientMovedView {
+        #[serde(rename = "ctid")]
+        channel_id: i64,
+        #[serde(rename = "reasonid", default)]
+        reason_id: i64,
+        #[serde(rename = "invokerid", default)]
+        invoker_id: i64,
+        #[serde(rename = "invokeruid", default)]
+        invoker_uid: String,
+        #[serde(rename = "invokername", default)]
+        invoker_name: String,
+        #[serde(rename = "clid", default)]
+        client_id: i64,
+    }
+
+    #[allow(dead_code)]
+    impl NotifyClientMovedView {
+        pub fn channel_id(&self) -> i64 {
+            self.channel_id
+        }
+        pub fn reason_id(&self) -> i64 {
+            self.reason_id
+        }
+        pub fn invoker_id(&self) -> i64 {
+            self.invoker_id
+        }
+        pub fn invoker_uid(&self) -> &str {
+            &self.invoker_uid
+        }
+        pub fn invoker_name(&self) -> &str {
+            &self.invoker_name
+        }
+        pub fn client_id(&self) -> i64 {
+            self.client_id
+        }
+    }
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct NotifyClientEnterView {
@@ -175,7 +214,7 @@ pub mod notifies {
         }
     }
 
-    fn default_reason_id() -> i64 {
+    fn default_left_reason_id() -> i64 {
         8
     }
 
@@ -185,7 +224,7 @@ pub mod notifies {
         client_id: i64,
         #[serde(rename = "reasonmsg", default)]
         reason: String,
-        #[serde(rename = "reasonid", default = "default_reason_id")]
+        #[serde(rename = "reasonid", default = "default_left_reason_id")]
         reason_id: i64,
         /*#[serde(rename = "invokerid", default)]
         invoker_id: i64,*/
@@ -213,6 +252,7 @@ pub mod notifies {
         }
     }
 
+    impl FromQueryString for NotifyClientMovedView {}
     impl FromQueryString for NotifyClientEnterView {}
     impl FromQueryString for NotifyClientLeftView {}
 }
@@ -298,12 +338,13 @@ pub mod server_info {
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct ServerInfo {
-        virtualserver_unique_identifier: String,
+        #[serde(rename = "virtualserver_unique_identifier")]
+        virtual_server_unique_identifier: String,
     }
 
     impl ServerInfo {
-        pub fn virtualserver_unique_identifier(&self) -> &str {
-            &self.virtualserver_unique_identifier
+        pub fn virtual_server_unique_identifier(&self) -> &str {
+            &self.virtual_server_unique_identifier
         }
     }
 
@@ -587,7 +628,7 @@ pub use channel::Channel;
 pub use client::Client;
 pub use config::Config;
 pub use create_channel::CreateChannel;
-pub use notifies::{NotifyClientEnterView, NotifyClientLeftView};
+pub use notifies::{NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView};
 pub use query_status::{QueryStatus, WebQueryStatus};
 use serde::Deserialize;
 pub use server_info::ServerInfo;

@@ -4,7 +4,8 @@ mod observer;
 mod socketlib;
 
 use crate::auto_channel::{
-    auto_channel_staff, MSG_CHANNEL_NOT_FOUND, MSG_CREATE_CHANNEL, MSG_MOVE_TO_CHANNEL,
+    auto_channel_staff, AutoChannelInstance, MSG_CHANNEL_NOT_FOUND, MSG_CREATE_CHANNEL,
+    MSG_MOVE_TO_CHANNEL,
 };
 use crate::datastructures::Config;
 use crate::observer::{observer_thread, telegram_thread};
@@ -73,6 +74,7 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
     let (conn1, conn2) = conn;
 
     let (exit_sender, exit_receiver) = watch::channel(false);
+    let (trigger_sender, trigger_receiver) = mpsc::channel(1024);
     let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
     let keepalive_signal = Arc::new(Mutex::new(false));
     let alt_signal = keepalive_signal.clone();
@@ -83,9 +85,12 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
         config.server().privilege_group_id(),
         config.server().redis_server(),
         config.misc().interval(),
-        exit_receiver.clone(),
+        trigger_receiver,
         config.channel_permissions(),
     ));
+
+    let auto_channel_instance =
+        AutoChannelInstance::new(config.server().channels(), Some(trigger_sender));
 
     let observer_handler = tokio::spawn(observer_thread(
         conn2,
@@ -94,6 +99,7 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
         config.misc().interval(),
         alt_signal,
         config.server().ignore_user_name(),
+        auto_channel_instance,
     ));
 
     let telegram_handler = tokio::spawn(telegram_thread(

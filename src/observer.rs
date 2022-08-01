@@ -1,5 +1,8 @@
-use crate::datastructures::{FromQueryString, NotifyClientEnterView, NotifyClientLeftView};
+use crate::datastructures::{
+    FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
+};
 
+use crate::auto_channel::AutoChannelInstance;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
@@ -138,6 +141,7 @@ pub async fn observer_thread(
     interval: u64,
     notify_signal: Arc<Mutex<bool>>,
     ignore_list: Vec<String>,
+    monitor_channel: AutoChannelInstance,
 ) -> anyhow::Result<()> {
     let mut client_map: HashMap<i64, (String, bool)> = HashMap::new();
     for client in conn
@@ -158,6 +162,12 @@ pub async fn observer_thread(
     conn.register_observer_events()
         .await
         .map_err(|e| anyhow!("Got error while register events: {:?}", e))?;
+
+    for channel_id in monitor_channel.channel_ids() {
+        conn.register_auto_channel_events(*channel_id)
+            .await
+            .map_err(|e| anyhow!("Register monitor channel error: {:?}", e))?
+    }
 
     let mut received = true;
     debug!("Loop running!");
@@ -203,7 +213,7 @@ pub async fn observer_thread(
             trace!("{}", line);
             if line.starts_with("notifycliententerview") {
                 let view = NotifyClientEnterView::from_query(line)
-                    .map_err(|e| anyhow!("Got error while deserialize data: {:?}", e))?;
+                    .map_err(|e| anyhow!("Got error while deserialize enter view: {:?}", e))?;
                 let is_server_query = view.client_unique_identifier().eq("ServerQuery")
                     || ignore_list
                         .iter()
@@ -224,7 +234,7 @@ pub async fn observer_thread(
             }
             if line.starts_with("notifyclientleftview") {
                 let view = NotifyClientLeftView::from_query(line)
-                    .map_err(|e| anyhow!("Got error while deserialize data: {:?}", e))?;
+                    .map_err(|e| anyhow!("Got error while deserialize left view: {:?}", e))?;
                 if !client_map.contains_key(&view.client_id()) {
                     warn!("Can't find client: {:?}", view.client_id());
                     continue;
@@ -245,6 +255,15 @@ pub async fn observer_thread(
                 client_map.remove(&view.client_id());
                 continue;
             }
+            if line.contains("notifyclientmoved") && monitor_channel.valid() {
+                let view = NotifyClientMovedView::from_query(line)
+                    .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
+                monitor_channel
+                    .send(view)
+                    .await
+                    .map(|_| debug!("Notify auto channel thread"))?;
+                continue;
+            }
             if line.contains("virtualserver_status=") {
                 received = true;
                 continue;
@@ -256,6 +275,11 @@ pub async fn observer_thread(
             break;
         }
     }
+    monitor_channel
+        .send_terminate()
+        .await
+        .map_err(|e| error!("{:?}", e))
+        .ok();
     sender
         .send(TelegramData::Terminate)
         .await
