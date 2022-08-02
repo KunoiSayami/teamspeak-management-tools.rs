@@ -1,6 +1,7 @@
 use crate::datastructures::{
     FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
 };
+use futures_util::future::FutureExt;
 
 use crate::auto_channel::AutoChannelInstance;
 use crate::socketlib::SocketConn;
@@ -227,8 +228,8 @@ pub async fn observer_thread(
                 }
                 monitor_channel
                     .send(view.clone().into())
-                    .await
-                    .map(|_| debug!("Notify auto channel thread"))?;
+                    .map(|result| result.map(|_| debug!("Notify auto channel thread")))
+                    .await?;
                 sender
                     .send(TelegramData::from_enter(current_time.clone(), view))
                     .await

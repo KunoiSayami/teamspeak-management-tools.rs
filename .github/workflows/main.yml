@@ -1,0 +1,111 @@
+name: Build Releases
+
+on:
+  push:
+
+  workflow_dispatch:
+    branches:
+      - master
+
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        job:
+          - os: macos-latest
+            binary_name: teamspeak-management-tools_darwin_amd64
+          - os: ubuntu-latest
+            binary_name: teamspeak-management-tools_linux_amd64
+          - os: windows-latest
+            binary_name: teamspeak-management-tools_windows_amd64.exe
+
+    name: Build
+    runs-on: ${{ matrix.job.os }}
+    env:
+      RUST_BACKTRACE: full
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          default: true
+          override: true
+
+      - name: Environment
+        run: |
+          git submodule update --init --recursive
+
+      - name: Build binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --profile release
+
+      - name: Rename binary
+        id: rename
+        shell: bash
+        env:
+          BINARY_NAME: ${{ matrix.job.binary_name }}
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            mv target/release/teamspeak-management-tools.exe target/release/$BINARY_NAME
+          else
+            mv target/release/teamspeak-management-tools target/release/$BINARY_NAME
+          fi
+          echo "::set-output name=bin::target/release/$BINARY_NAME"
+      - uses: actions/upload-artifact@v2
+        with:
+          name: ${{ matrix.job.binary_name }}
+          path: target/release/${{ matrix.job.binary_name }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ${{ steps.rename.outputs.bin }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build_aarch64:
+    name: Cross build
+    runs-on: ubuntu-latest
+    env:
+      RUST_BACKTRACE: full
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: aarch64-unknown-linux-gnu
+          profile: minimal
+          default: true
+          override: true
+      - name: Environment
+        run: |
+          git submodule update --init --recursive
+          sudo apt install libssl-dev
+      - name: Build aarch 64 binary
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --target aarch64-unknown-linux-musl --profile release
+      - run: mv target/aarch64-unknown-linux-musl/release/teamspeak-management-tools target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
+      - uses: actions/upload-artifact@v2
+        with:
+          name: teamspeak-management-tools_linux_aarch64
+          path: target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
