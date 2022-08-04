@@ -170,6 +170,7 @@ impl SocketConn {
             .map(|mut v| v.remove(0))
     }
 
+    #[allow(unused)]
     pub(crate) async fn send_text_message(
         &mut self,
         client_id: i64,
@@ -181,6 +182,19 @@ impl SocketConn {
             text = Self::escape(text)
         );
         self.basic_operation(&payload).await
+    }
+
+    pub(crate) async fn send_text_message_unchecked(
+        &mut self,
+        client_id: i64,
+        text: &str,
+    ) -> anyhow::Result<()> {
+        let payload = format!(
+            "sendtextmessage targetmode=1 target={client_id} msg={text}\n\r",
+            client_id = client_id,
+            text = Self::escape(text)
+        );
+        self.write_data(&payload).await
     }
 
     pub(crate) async fn query_server_info(&mut self) -> QueryResult<ServerInfo> {
@@ -266,13 +280,28 @@ impl SocketConn {
 
     pub async fn register_observer_events(&mut self) -> QueryResult<()> {
         self.basic_operation("servernotifyregister event=server\n\r")
+            .await?;
+        self.basic_operation("servernotifyregister event=textprivate\n\r")
             .await
     }
+
     pub async fn register_auto_channel_events(&mut self, channel_id: i64) -> QueryResult<()> {
         self.basic_operation(&format!(
             "servernotifyregister event=channel id={}\n\r",
             channel_id
         ))
         .await
+    }
+
+    pub async fn change_nickname(&mut self, nickname: &str) -> QueryResult<()> {
+        self.basic_operation(&format!(
+            "clientupdate client_nickname={}\n\r",
+            Self::escape(nickname)
+        ))
+        .await
+    }
+
+    pub(crate) async fn client_get_database_id_from_uid(&mut self, _uid: &str) -> QueryResult<()> {
+        todo!()
     }
 }

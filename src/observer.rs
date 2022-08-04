@@ -14,7 +14,12 @@ use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
-use tokio::sync::{mpsc, watch, Mutex};
+use tokio::sync::{mpsc, Mutex};
+
+pub enum PrivateMessageRequest {
+    Message(i64, String),
+    Terminate,
+}
 
 pub enum TelegramData {
     Enter(String, i64, String, String, String),
@@ -137,13 +142,16 @@ pub async fn telegram_thread(
 
 pub async fn observer_thread(
     mut conn: SocketConn,
-    mut recv: watch::Receiver<bool>,
+    mut recv: mpsc::Receiver<PrivateMessageRequest>,
     sender: mpsc::Sender<TelegramData>,
     interval: u64,
     notify_signal: Arc<Mutex<bool>>,
     ignore_list: Vec<String>,
     monitor_channel: AutoChannelInstance,
 ) -> anyhow::Result<()> {
+    conn.change_nickname("observer")
+        .await
+        .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
     let mut client_map: HashMap<i64, (String, bool)> = HashMap::new();
     for client in conn
         .query_clients()
@@ -174,18 +182,21 @@ pub async fn observer_thread(
     debug!("Loop running!");
 
     loop {
-        if recv
+        /*if recv
             .has_changed()
             .map_err(|e| anyhow!("Got error in check watcher {:?}", e))?
         {
             info!("Exit from staff thread!");
             conn.logout().await.ok();
             break;
-        }
+        }*/
+
+        //trace!("Read data");
         let data = conn
             .read_data()
             .await
             .map_err(|e| anyhow!("Got error while read data: {:?}", e))?;
+        //trace!("Read data end");
 
         if !matches!(&data, Some(x) if !x.is_empty()) {
             let mut signal = notify_signal.lock().await;
@@ -207,6 +218,7 @@ pub async fn observer_thread(
         }
         let data = data.unwrap();
         let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        //trace!("message loop start");
         for line in data.lines().map(|line| line.trim()) {
             if line.is_empty() {
                 continue;
@@ -274,10 +286,26 @@ pub async fn observer_thread(
                 continue;
             }
         }
-        if let Ok(_) = tokio::time::timeout(Duration::from_millis(interval), recv.changed()).await {
-            info!("Exit from staff thread!");
-            conn.logout().await.ok();
-            break;
+        //trace!("message loop end");
+        if let Ok(Some(message)) =
+            tokio::time::timeout(Duration::from_millis(interval), recv.recv()).await
+        {
+            //trace!("Checking message");
+            match message {
+                PrivateMessageRequest::Message(client_id, message) => {
+                    conn.send_text_message_unchecked(client_id, &message)
+                        .await
+                        .map(|_| trace!("Send message to {}", client_id))
+                        .map_err(|e| {
+                            anyhow!("Got error while send message to {} {:?}", client_id, e)
+                        })?;
+                }
+                PrivateMessageRequest::Terminate => {
+                    info!("Exit from staff thread!");
+                    conn.logout().await.ok();
+                    break;
+                }
+            }
         }
     }
     monitor_channel

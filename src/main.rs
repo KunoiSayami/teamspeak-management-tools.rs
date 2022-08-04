@@ -3,22 +3,20 @@ mod datastructures;
 mod observer;
 mod socketlib;
 
-use crate::auto_channel::{
-    auto_channel_staff, AutoChannelInstance, MSG_CHANNEL_NOT_FOUND, MSG_CREATE_CHANNEL,
-    MSG_MOVE_TO_CHANNEL,
-};
+use crate::auto_channel::{auto_channel_staff, AutoChannelInstance, MSG_MOVE_TO_CHANNEL};
 use crate::datastructures::Config;
-use crate::observer::{observer_thread, telegram_thread};
+use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use clap::{arg, Command};
-use log::{debug, error, info, warn, LevelFilter};
+use futures_util::TryFutureExt;
+use log::{debug, error, info, trace, warn, LevelFilter};
 use once_cell::sync::OnceCell;
 use std::hint::unreachable_unchecked;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch, Mutex};
+use tokio::sync::{mpsc, Mutex};
 
 static SYSTEMD_MODE: OnceCell<bool> = OnceCell::new();
 const SYSTEMD_MODE_RETRIE_TIMES: u32 = 3;
@@ -73,28 +71,30 @@ async fn init_connection(config: &Config, sid: i64) -> anyhow::Result<SocketConn
 async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Result<()> {
     let (conn1, conn2) = conn;
 
-    let (exit_sender, exit_receiver) = watch::channel(false);
+    //let (exit_sender, exit_receiver) = watch::channel(false);
+    let (private_message_sender, private_message_receiver) = mpsc::channel(4096);
     let (trigger_sender, trigger_receiver) = mpsc::channel(1024);
     let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
     let keepalive_signal = Arc::new(Mutex::new(false));
     let alt_signal = keepalive_signal.clone();
 
     let auto_channel_handler = tokio::spawn(auto_channel_staff(
-        conn1,
+        conn2,
         config.server().channels(),
         config.server().privilege_group_id(),
         config.server().redis_server(),
         config.misc().interval(),
         trigger_receiver,
         config.channel_permissions(),
+        private_message_sender.clone(),
     ));
 
     let auto_channel_instance =
         AutoChannelInstance::new(config.server().channels(), Some(trigger_sender));
 
     let observer_handler = tokio::spawn(observer_thread(
-        conn2,
-        exit_receiver.clone(),
+        conn1,
+        private_message_receiver,
         telegram_sender,
         config.misc().interval(),
         alt_signal,
@@ -113,7 +113,12 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
         _ = async {
             tokio::signal::ctrl_c().await.unwrap();
             info!("Recv SIGINT, send signal to thread.");
-            exit_sender.send(true).unwrap();
+            private_message_sender // TODO: check performance
+                .send(PrivateMessageRequest::Terminate)
+                .map_err(|_| error!("Send terminate error"))
+                .await
+                .ok();
+            trace!("Send signal!");
             tokio::signal::ctrl_c().await.unwrap();
             error!("Force exit program.");
             std::process::exit(137);
@@ -165,12 +170,6 @@ async fn configure_file_bootstrap<P: AsRef<Path>>(
     systemd_mode: bool,
 ) -> anyhow::Result<()> {
     let config = Config::try_from(path.as_ref())?;
-    MSG_CHANNEL_NOT_FOUND
-        .set(config.message().channel_not_found())
-        .unwrap();
-    MSG_CREATE_CHANNEL
-        .set(config.message().create_channel())
-        .unwrap();
     MSG_MOVE_TO_CHANNEL
         .set(config.message().move_to_channel())
         .unwrap();

@@ -490,13 +490,13 @@ pub mod config {
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Message {
-        channel_not_found: Option<String>,
-        create_channel: Option<String>,
+        //channel_not_found: Option<String>,
+        //create_channel: Option<String>,
         move_to_channel: Option<String>,
     }
 
     impl Message {
-        pub fn channel_not_found(&self) -> String {
+        /*pub fn channel_not_found(&self) -> String {
             self.channel_not_found
                 .clone()
                 .unwrap_or_else(|| "I can't find you channel.".to_string())
@@ -505,7 +505,7 @@ pub mod config {
             self.create_channel
                 .clone()
                 .unwrap_or_else(|| "Your Channel has been created!".to_string())
-        }
+        }*/
         pub fn move_to_channel(&self) -> String {
             self.move_to_channel
                 .clone()

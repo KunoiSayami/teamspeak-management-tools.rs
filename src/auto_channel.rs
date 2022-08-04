@@ -1,7 +1,8 @@
 use crate::datastructures::notifies::ClientBasicInfo;
+use crate::observer::PrivateMessageRequest;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
-use log::{error, info};
+use log::{error, info, warn};
 use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
 use std::collections::HashMap;
@@ -9,8 +10,6 @@ use std::hint::unreachable_unchecked;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-pub static MSG_CHANNEL_NOT_FOUND: OnceCell<String> = OnceCell::new();
-pub static MSG_CREATE_CHANNEL: OnceCell<String> = OnceCell::new();
 pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
 
 pub enum AutoChannelEvent {
@@ -81,6 +80,7 @@ pub async fn auto_channel_staff(
     interval: u64,
     mut receiver: mpsc::Receiver<AutoChannelEvent>,
     channel_permissions: HashMap<i64, Vec<(u64, i64)>>,
+    private_message_sender: mpsc::Sender<PrivateMessageRequest>,
 ) -> anyhow::Result<()> {
     info!(
         "Interval is: {}, version: {}",
@@ -94,6 +94,10 @@ pub async fn auto_channel_staff(
         .get_async_connection()
         .await
         .map_err(|e| anyhow!("Get redis connection error: {:?}", e))?;
+
+    conn.change_nickname("auto channel")
+        .await
+        .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
 
     let who_am_i = conn
         .who_am_i()
@@ -161,10 +165,10 @@ pub async fn auto_channel_staff(
             let ret: Option<i64> = redis_conn.get(&key).await?;
             let create_new = ret.is_none();
             let target_channel = if create_new {
-                conn.send_text_message(client.client_id(), MSG_CHANNEL_NOT_FOUND.get().unwrap())
-                    .await
-                    .map_err(|e| error!("Got error while send message: {:?}", e))
-                    .ok();
+                /*conn.send_text_message(client.client_id(), MSG_CHANNEL_NOT_FOUND.get().unwrap())
+                .await
+                .map_err(|e| error!("Got error while send message: {:?}", e))
+                .ok();*/
 
                 let mut name = format!("{}'s channel", client.client_nickname());
                 let channel_id = loop {
@@ -181,10 +185,10 @@ pub async fn auto_channel_staff(
                         }
                     };
 
-                    conn.send_text_message(client.client_id(), MSG_CREATE_CHANNEL.get().unwrap())
-                        .await
-                        .map_err(|e| error!("Got error while send message: {:?}", e))
-                        .ok();
+                    /*conn.send_text_message(client.client_id(), MSG_CREATE_CHANNEL.get().unwrap())
+                    .await
+                    .map_err(|e| error!("Got error while send message: {:?}", e))
+                    .ok();*/
 
                     break create_channel.unwrap().cid();
                 };
@@ -231,9 +235,17 @@ pub async fn auto_channel_staff(
                 }
             };
 
-            conn.send_text_message(client.client_id(), MSG_MOVE_TO_CHANNEL.get().unwrap())
+            /*conn.send_text_message(client.client_id(), MSG_MOVE_TO_CHANNEL.get().unwrap())
+            .await
+            .map_err(|e| error!("Got error while send message: {:?}", e))
+            .ok();*/
+            private_message_sender
+                .send(PrivateMessageRequest::Message(
+                    client.client_id(),
+                    MSG_MOVE_TO_CHANNEL.get().unwrap().clone(),
+                ))
                 .await
-                .map_err(|e| error!("Got error while send message: {:?}", e))
+                .map_err(|_| warn!("Send message request fail"))
                 .ok();
 
             if create_new {
