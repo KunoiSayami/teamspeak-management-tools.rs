@@ -1176,7 +1176,7 @@ checksum = "20f34339676cdcab560c9a82300c4c2581f68b9369aedf0fae86f2ff9565ff3e"
 
 [[package]]
 name = "teamspeak-management-tools"
-version = "0.2.0-beta"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "chrono",

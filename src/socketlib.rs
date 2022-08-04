@@ -1,5 +1,5 @@
 use crate::datastructures::{
-    Channel, Client, CreateChannel, QueryError, QueryResult, ServerInfo, WhoAmI,
+    Channel, Client, CreateChannel, DatabaseId, QueryError, QueryResult, ServerInfo, WhoAmI,
 };
 use crate::datastructures::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
@@ -301,7 +301,12 @@ impl SocketConn {
         .await
     }
 
-    pub(crate) async fn client_get_database_id_from_uid(&mut self, _uid: &str) -> QueryResult<()> {
-        todo!()
+    pub(crate) async fn client_get_database_id_from_uid(
+        &mut self,
+        uid: &str,
+    ) -> QueryResult<DatabaseId> {
+        self.query_operation_non_error(&format!("clientgetdbidfromuid cluid={}\n\r", uid))
+            .await
+            .map(|mut v| v.remove(0))
     }
 }

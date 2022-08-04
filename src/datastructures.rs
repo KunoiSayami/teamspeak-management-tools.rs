@@ -291,9 +291,45 @@ pub mod notifies {
         }
     }
 
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct NotifyTextMessage {
+        /*#[serde(rename = "targetmode", default)]
+        target_mode: i8,*/
+        msg: String,
+        //target: i64,
+        #[serde(rename = "invokerid", default)]
+        invoker_id: i64,
+        #[serde(rename = "invokername", default)]
+        invoker_name: String,
+        #[serde(rename = "invokeruid", default)]
+        invoker_uid: String,
+    }
+
+    impl NotifyTextMessage {
+        /*pub fn target_mode(&self) -> i8 {
+            self.target_mode
+        }*/
+        pub fn msg(&self) -> &str {
+            &self.msg
+        }
+        /*pub fn target(&self) -> i64 {
+            self.target
+        }*/
+        pub fn invoker_name(&self) -> &str {
+            &self.invoker_name
+        }
+        pub fn invoker_uid(&self) -> &str {
+            &self.invoker_uid
+        }
+        pub fn invoker_id(&self) -> i64 {
+            self.invoker_id
+        }
+    }
+
     impl FromQueryString for NotifyClientMovedView {}
     impl FromQueryString for NotifyClientEnterView {}
     impl FromQueryString for NotifyClientLeftView {}
+    impl FromQueryString for NotifyTextMessage {}
 }
 
 pub mod query_status {
@@ -388,6 +424,31 @@ pub mod server_info {
     }
 
     impl FromQueryString for ServerInfo {}
+}
+
+pub mod client_query_result {
+
+    use super::FromQueryString;
+    use serde_derive::Deserialize;
+
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct DatabaseId {
+        /*#[serde(rename = "cluid")]
+        client_unique_id: String,*/
+        #[serde(rename = "cldbid")]
+        client_database_id: i64,
+    }
+
+    impl DatabaseId {
+        /*pub fn client_unique_id(&self) -> &str {
+            &self.client_unique_id
+        }*/
+        pub fn client_database_id(&self) -> i64 {
+            self.client_database_id
+        }
+    }
+
+    impl FromQueryString for DatabaseId {}
 }
 
 pub mod config {
@@ -665,9 +726,12 @@ mod status_result {
 
 pub use channel::Channel;
 pub use client::Client;
+pub use client_query_result::DatabaseId;
 pub use config::Config;
 pub use create_channel::CreateChannel;
-pub use notifies::{NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView};
+pub use notifies::{
+    NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView, NotifyTextMessage,
+};
 pub use query_status::{QueryStatus, WebQueryStatus};
 use serde::Deserialize;
 pub use server_info::ServerInfo;

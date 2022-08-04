@@ -1,9 +1,10 @@
 use crate::datastructures::{
     FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
+    NotifyTextMessage,
 };
 use futures_util::future::FutureExt;
 
-use crate::auto_channel::AutoChannelInstance;
+use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
@@ -278,7 +279,28 @@ pub async fn observer_thread(
                 monitor_channel
                     .send(view.into())
                     .await
-                    .map(|_| debug!("Notify auto channel thread"))?;
+                    .map(|_| trace!("Notify auto channel thread"))?;
+                continue;
+            }
+            if line.contains("notifytextmessage") && monitor_channel.valid() {
+                let view = NotifyTextMessage::from_query(line)
+                    .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
+                if !view.msg().eq("!reset") {
+                    continue;
+                }
+                monitor_channel
+                    .send_signal(AutoChannelEvent::DeleteChannel(
+                        view.invoker_id(),
+                        view.invoker_uid().to_string(),
+                    ))
+                    .await
+                    .map(|_| {
+                        info!(
+                            "Notify auto channel thread reset {}({})",
+                            view.invoker_name(),
+                            view.invoker_uid()
+                        )
+                    })?;
                 continue;
             }
             if line.contains("virtualserver_status=") {

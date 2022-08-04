@@ -2,11 +2,10 @@ use crate::datastructures::notifies::ClientBasicInfo;
 use crate::observer::PrivateMessageRequest;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
-use log::{error, info, warn};
+use log::{error, info, trace, warn};
 use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
 use std::collections::HashMap;
-use std::hint::unreachable_unchecked;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -14,6 +13,7 @@ pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
 
 pub enum AutoChannelEvent {
     Update(ClientBasicInfo),
+    DeleteChannel(i64, String),
     Terminate,
 }
 
@@ -38,6 +38,18 @@ impl AutoChannelInstance {
         }
     }
 
+    // TODO: Optimize
+    pub async fn send_signal(&self, signal: AutoChannelEvent) -> anyhow::Result<bool> {
+        match self.sender {
+            Some(ref sender) => sender
+                .send(signal)
+                .await
+                .map_err(|_| anyhow!("Got error while send event to auto channel staff"))
+                .map(|_| true),
+            _ => Ok(false),
+        }
+    }
+
     pub async fn send(&self, view: ClientBasicInfo) -> anyhow::Result<bool> {
         if self.sender.is_none() {
             return Ok(false);
@@ -45,15 +57,8 @@ impl AutoChannelInstance {
         if !self.channel_ids.iter().any(|id| id == &view.channel_id()) {
             return Ok(false);
         }
-
-        match self.sender {
-            Some(ref sender) => sender
-                .send(AutoChannelEvent::Update(view.into()))
-                .await
-                .map_err(|_| anyhow!("Got error while send event to auto channel staff"))
-                .map(|_| true),
-            _ => unsafe { unreachable_unchecked() },
-        }
+        self.send_signal(AutoChannelEvent::Update(view.into()))
+            .await
     }
 
     pub fn new_none() -> Self {
@@ -122,6 +127,34 @@ pub async fn auto_channel_staff(
                         if view.client_id() == who_am_i.client_id() {
                             continue;
                         }
+                    }
+                    AutoChannelEvent::DeleteChannel(client_id, uid) => {
+                        let result = conn
+                            .client_get_database_id_from_uid(&uid)
+                            .await
+                            .map_err(|e| anyhow!("Got error while query {} {:?}", uid, e))?;
+                        for channel_id in &monitor_channels {
+                            let key = format!(
+                                "ts_autochannel_{}_{server_id}_{pid}",
+                                result.client_database_id(),
+                                server_id = server_info.virtual_server_unique_identifier(),
+                                pid = channel_id
+                            );
+                            redis_conn
+                                .del::<_, i64>(&key)
+                                .await
+                                .map(|_| trace!("Deleted"))
+                                .map_err(|e| error!("Got error while delete from redis: {:?}", e))
+                                .ok();
+                        }
+                        private_message_sender
+                            .send(PrivateMessageRequest::Message(
+                                client_id,
+                                "Received.".to_string(),
+                            ))
+                            .await
+                            .map_err(|_| error!("Got error in request send message"))
+                            .ok();
                     }
                 },
                 Ok(None) => {
