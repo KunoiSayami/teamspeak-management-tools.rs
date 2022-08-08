@@ -460,30 +460,30 @@ pub mod config {
 
     #[derive(Clone, Debug, Deserialize)]
     #[serde(untagged)]
-    pub enum Integer {
+    pub enum Numbers {
         Single(i64),
         Multiple(Vec<i64>),
     }
 
-    impl Integer {
+    impl Numbers {
         fn to_vec(&self) -> Vec<i64> {
             match self {
-                Integer::Single(id) => {
+                Numbers::Single(id) => {
                     vec![*id]
                 }
-                Integer::Multiple(ids) => ids.clone(),
+                Numbers::Multiple(ids) => ids.clone(),
             }
         }
     }
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct Permission {
-        channel_id: Integer,
+        channel_id: Numbers,
         map: Vec<(u64, i64)>,
     }
 
     impl Permission {
-        pub fn channel_id(&self) -> &Integer {
+        pub fn channel_id(&self) -> &Numbers {
             &self.channel_id
         }
         pub fn map(&self) -> &Vec<(u64, i64)> {
@@ -521,7 +521,7 @@ pub mod config {
     #[derive(Clone, Debug, Deserialize)]
     pub struct Server {
         server_id: Option<i64>,
-        channel_id: Integer,
+        channel_id: Numbers,
         privilege_group_id: i64,
         redis_server: Option<String>,
         ignore_user: Option<Vec<String>>,
@@ -645,10 +645,10 @@ pub mod config {
                 Some(permissions) => {
                     for permission in permissions {
                         match permission.channel_id() {
-                            Integer::Single(channel_id) => {
+                            Numbers::Single(channel_id) => {
                                 m.insert(*channel_id, permission.map().clone());
                             }
-                            Integer::Multiple(channel_ids) => {
+                            Numbers::Multiple(channel_ids) => {
                                 for channel_id in channel_ids {
                                     m.insert(*channel_id, permission.map().clone());
                                 }

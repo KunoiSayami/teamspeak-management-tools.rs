@@ -285,12 +285,9 @@ impl SocketConn {
             .await
     }
 
-    pub async fn register_auto_channel_events(&mut self, channel_id: i64) -> QueryResult<()> {
-        self.basic_operation(&format!(
-            "servernotifyregister event=channel id={}\n\r",
-            channel_id
-        ))
-        .await
+    pub async fn register_channel_events(&mut self) -> QueryResult<()> {
+        self.basic_operation(&format!("servernotifyregister event=channel id=0\n\r",))
+            .await
     }
 
     pub async fn change_nickname(&mut self, nickname: &str) -> QueryResult<()> {

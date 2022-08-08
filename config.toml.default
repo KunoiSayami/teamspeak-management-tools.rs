@@ -14,13 +14,15 @@ privilege_group_id = 5
 # channel_id = [2, 3]
 # map = [[86, 75]]
 
+[telegram]
+api_key = ""
+target = 0
+
 [misc]
 # interval = 5
 # systemd = false
 
 # [custom_message]
-# channel_not_found = "I can't find you channel."
-# create_channel = "Your Channel has been created!"
 # move_to_channel = "You have been moved into your channel."
 
 # [raw_query]
@@ -29,8 +31,3 @@ privilege_group_id = 5
 # port = 10011
 # user = "serveradmin"
 # password = "114514"
-
-[web_query]
-# This method may significantly increase CPU usage.
-server = "https://localhost:10080"
-api_key = "BAA114514"

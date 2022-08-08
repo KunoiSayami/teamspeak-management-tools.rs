@@ -150,6 +150,12 @@ pub async fn observer_thread(
     ignore_list: Vec<String>,
     monitor_channel: AutoChannelInstance,
 ) -> anyhow::Result<()> {
+    info!(
+        "Interval is: {}, version: {}",
+        interval,
+        env!("CARGO_PKG_VERSION")
+    );
+
     conn.change_nickname("observer")
         .await
         .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
@@ -173,14 +179,13 @@ pub async fn observer_thread(
         .await
         .map_err(|e| anyhow!("Got error while register events: {:?}", e))?;
 
-    for channel_id in monitor_channel.channel_ids() {
-        conn.register_auto_channel_events(*channel_id)
+    if monitor_channel.valid() {
+        conn.register_channel_events()
             .await
-            .map_err(|e| anyhow!("Register monitor channel error: {:?}", e))?
+            .map_err(|e| anyhow!("Register monitor channel error: {:?}", e))?;
     }
 
     let mut received = true;
-    debug!("Loop running!");
 
     loop {
         /*if recv
@@ -239,15 +244,21 @@ pub async fn observer_thread(
                 if is_server_query {
                     continue;
                 }
-                monitor_channel
-                    .send(view.clone().into())
-                    .map(|result| result.map(|_| debug!("Notify auto channel thread")))
-                    .await?;
-                sender
-                    .send(TelegramData::from_enter(current_time.clone(), view))
-                    .await
-                    .map_err(|_| error!("Got error while send data to telegram"))
-                    .ok();
+                tokio::join!(
+                    monitor_channel.send(view.clone().into()).map(|result| {
+                        result.map(|sent| {
+                            if sent {
+                                trace!("Notify auto channel thread")
+                            }
+                        })
+                    }),
+                    sender
+                        .send(TelegramData::from_enter(current_time.clone(), view))
+                        .map(|result| result
+                            .map_err(|_| error!("Got error while send data to telegram"))
+                            .ok())
+                )
+                .0?;
                 continue;
             }
             if line.starts_with("notifyclientleftview") {
@@ -276,10 +287,11 @@ pub async fn observer_thread(
             if line.contains("notifyclientmoved") && monitor_channel.valid() {
                 let view = NotifyClientMovedView::from_query(line)
                     .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
-                monitor_channel
-                    .send(view.into())
-                    .await
-                    .map(|_| trace!("Notify auto channel thread"))?;
+                monitor_channel.send(view.into()).await.map(|sent| {
+                    if sent {
+                        trace!("Notify auto channel thread")
+                    }
+                })?;
                 continue;
             }
             if line.contains("notifytextmessage") && monitor_channel.valid() {

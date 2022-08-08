@@ -2,7 +2,7 @@ use crate::datastructures::notifies::ClientBasicInfo;
 use crate::observer::PrivateMessageRequest;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
-use log::{error, info, trace, warn};
+use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
 use std::collections::HashMap;
@@ -24,10 +24,6 @@ pub struct AutoChannelInstance {
 }
 
 impl AutoChannelInstance {
-    pub fn channel_ids(&self) -> &Vec<i64> {
-        &self.channel_ids
-    }
-
     pub async fn send_terminate(&self) -> anyhow::Result<()> {
         match self.sender {
             Some(ref sender) => sender
@@ -61,9 +57,9 @@ impl AutoChannelInstance {
             .await
     }
 
-    pub fn new_none() -> Self {
+    /*pub fn new_none() -> Self {
         Self::new(vec![], None)
-    }
+    }*/
 
     pub fn new(channel_ids: Vec<i64>, sender: Option<mpsc::Sender<AutoChannelEvent>>) -> Self {
         Self {
@@ -82,17 +78,11 @@ pub async fn auto_channel_staff(
     monitor_channels: Vec<i64>,
     privilege_group: i64,
     redis_server: String,
-    interval: u64,
+    _interval: u64,
     mut receiver: mpsc::Receiver<AutoChannelEvent>,
     channel_permissions: HashMap<i64, Vec<(u64, i64)>>,
     private_message_sender: mpsc::Sender<PrivateMessageRequest>,
 ) -> anyhow::Result<()> {
-    info!(
-        "Interval is: {}, version: {}",
-        interval,
-        env!("CARGO_PKG_VERSION")
-    );
-
     let redis = redis::Client::open(redis_server)
         .map_err(|e| anyhow!("Connect redis server error! {:?}", e))?;
     let mut redis_conn = redis
@@ -115,6 +105,7 @@ pub async fn auto_channel_staff(
         .map_err(|e| anyhow!("Query server info error: {:?}", e))?;
 
     info!("Connected: {}", who_am_i.client_id());
+    debug!("Monitor: {}", monitor_channels.len());
 
     let mut skip_sleep = true;
     loop {
