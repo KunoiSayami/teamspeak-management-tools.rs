@@ -285,6 +285,13 @@ impl SocketConn {
             .await
     }
 
+    /// As http://yat.qa/ressourcen/server-query-notify/ said:
+    ///
+    /// Man kann nur ein Channel-Abo haben. Es gilt das erste, das man abonniert hat. Dies wird nur
+    /// durch Verlassen des Servers oder servernotifyunregister zurückgesetzt.
+    /// Insbesondere wird es nicht zurückgesetzt, wenn der Channel gelöscht wird. Arrays als
+    /// Parameter sind nicht möglich. Beim Löschen eines Channels
+    /// geht das Abonnement nicht verloren.
     pub async fn register_channel_events(&mut self) -> QueryResult<()> {
         self.basic_operation(&format!("servernotifyregister event=channel id=0\n\r",))
             .await
@@ -305,5 +312,10 @@ impl SocketConn {
         self.query_operation_non_error(&format!("clientgetdbidfromuid cluid={}\n\r", uid))
             .await
             .map(|mut v| v.remove(0))
+    }
+
+    pub async fn ban_del(&mut self, ban_id: i64) -> QueryResult<()> {
+        self.basic_operation(&format!("bandel banid={}\n\r", ban_id))
+            .await
     }
 }

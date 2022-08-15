@@ -1,6 +1,6 @@
 [package]
 name = "teamspeak-management-tools"
-version = "1.0.0-beta"
+version = "1.0.0-beta.2"
 edition = "2021"
 
 [dependencies]

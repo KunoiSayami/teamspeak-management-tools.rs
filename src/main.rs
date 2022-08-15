@@ -100,6 +100,7 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
         alt_signal,
         config.server().ignore_user_name(),
         auto_channel_instance,
+        config.server().whitelist_ip(),
     ));
 
     let telegram_handler = tokio::spawn(telegram_thread(

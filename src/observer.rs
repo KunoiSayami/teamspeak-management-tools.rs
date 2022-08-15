@@ -5,6 +5,7 @@ use crate::datastructures::{
 use futures_util::future::FutureExt;
 
 use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
+use crate::datastructures::ban_entry::BanEntry;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
@@ -149,11 +150,13 @@ pub async fn observer_thread(
     notify_signal: Arc<Mutex<bool>>,
     ignore_list: Vec<String>,
     monitor_channel: AutoChannelInstance,
+    whitelist_ip: Vec<String>,
 ) -> anyhow::Result<()> {
     info!(
-        "Interval is: {}, version: {}",
+        "Version: {}, interval: {},  ban list checker: {}",
+        env!("CARGO_PKG_VERSION"),
         interval,
-        env!("CARGO_PKG_VERSION")
+        !whitelist_ip.is_empty()
     );
 
     conn.change_nickname("observer")
@@ -175,6 +178,7 @@ pub async fn observer_thread(
         );
     }
 
+    // TODO: Check if this is necessary
     conn.register_observer_events()
         .await
         .map_err(|e| anyhow!("Got error while register events: {:?}", e))?;
@@ -186,6 +190,10 @@ pub async fn observer_thread(
     }
 
     let mut received = true;
+
+    if !whitelist_ip.is_empty() {
+        conn.write_data("banlist\n\r").await.ok();
+    }
 
     loop {
         /*if recv
@@ -212,7 +220,7 @@ pub async fn observer_thread(
                     return Err(anyhow!("Server disconnected"));
                 }
                 received = false;
-                conn.write_data("whoami\n\r")
+                conn.write_data("whoami\n\rbanlist\n\r")
                     .await
                     .map_err(|e| {
                         error!("Got error while write data in keep alive function: {:?}", e)
@@ -314,6 +322,20 @@ pub async fn observer_thread(
                         )
                     })?;
                 continue;
+            }
+            if line.starts_with("banid") && !whitelist_ip.is_empty() {
+                for entry in line.split('|').map(|element| BanEntry::from_query(element)) {
+                    let entry = entry?;
+                    if whitelist_ip.iter().any(|ip| entry.ip().eq(ip)) {
+                        conn.ban_del(entry.ban_id()).await.map(|_| {
+                            info!(
+                                "Remove whitelist ip {} from ban list (was {})",
+                                entry.ip(),
+                                entry
+                            )
+                        })?
+                    }
+                }
             }
             if line.contains("virtualserver_status=") {
                 received = true;

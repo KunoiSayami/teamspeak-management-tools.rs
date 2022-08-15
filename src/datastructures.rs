@@ -132,7 +132,7 @@ pub mod client {
         use crate::datastructures::client::Client;
         use crate::datastructures::FromQueryString;
 
-        const TEST_STRING: &str = "client_id=8 cid=1 client_database_id=1 client_nickname=serveradmin client_type=1 client_unique_identifier=serveradmin";
+        const TEST_STRING: &str = "clid=8 cid=1 client_database_id=1 client_nickname=serveradmin client_type=1 client_unique_identifier=serveradmin";
 
         #[test]
         fn test() {
@@ -142,7 +142,8 @@ pub mod client {
             assert_eq!(result.client_database_id(), 1);
             assert_eq!(result.client_nickname(), "serveradmin".to_string());
             assert_eq!(result.client_type(), 1);
-            assert_eq!(result.client_unique_identifier(), "serveradmin".to_string());
+            //assert_eq!(result.client_unique_identifier(), "serveradmin".to_string());
+            assert_eq!(result.client_unique_identifier(), "1".to_string());
         }
     }
 }
@@ -451,6 +452,91 @@ pub mod client_query_result {
     impl FromQueryString for DatabaseId {}
 }
 
+pub mod ban_entry {
+    use super::FromQueryString;
+    use serde_derive::Deserialize;
+    use std::fmt::{Display, Formatter};
+
+    #[derive(Clone, Debug, Deserialize)]
+    pub struct BanEntry {
+        #[serde(rename = "banid")]
+        ban_id: i64,
+        #[serde(default)]
+        ip: String,
+        #[serde(default)]
+        reason: String,
+        /*#[serde(rename = "invokercldbid", default)]
+        invoker_client_database_id: i64,*/
+        #[serde(rename = "invokername", default)]
+        invoker_name: String,
+        #[serde(rename = "invokeruid", default)]
+        invoker_uid: String,
+        /*#[serde(rename = "lastnickname", default)]
+        last_nickname: String,*/
+    }
+
+    impl BanEntry {
+        pub fn ban_id(&self) -> i64 {
+            self.ban_id
+        }
+        pub fn ip(&self) -> &str {
+            &self.ip
+        }
+        pub fn reason(&self) -> &str {
+            &self.reason
+        }
+        /*pub fn invoker_client_database_id(&self) -> i64 {
+            self.invoker_client_database_id
+        }*/
+        pub fn invoker_name(&self) -> &str {
+            &self.invoker_name
+        }
+        pub fn invoker_uid(&self) -> &str {
+            &self.invoker_uid
+        }
+    }
+
+    impl Display for BanEntry {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            write!(
+                f,
+                "id: {}, reason: {}, invoker: {}, invoker name: {}",
+                self.ban_id(),
+                self.reason(),
+                self.invoker_uid(),
+                self.invoker_name()
+            )
+        }
+    }
+
+    #[cfg(test)]
+    mod test {
+        use crate::datastructures::ban_entry::BanEntry;
+        use crate::datastructures::client::Client;
+        use crate::datastructures::FromQueryString;
+
+        const TEST_STRING: &str = r#"banid=5 ip name uid=953jm1Ez3CvbAx7FKzb19zAQm48= mytsid 
+        lastnickname=باب created=1541834015 duration=0 invokername=AdminUser invokercldbid=2 
+        invokeruid=QuietTeamspeak= reason enforcements=0|banid=6 ip=1.1.1.1 
+        name uid mytsid lastnickname=باب created=1541834015 duration=0 invokername=AdminUser 
+        invokercldbid=2 invokeruid=QuietTeamspeak= reason enforcements=0|banid=12 
+        ip=114.5.1.4 name uid=+1145141919810 mytsid 
+        lastnickname=!\s\s\s\s\s\s\s\s\s\s\s\s\s\sValidname created=1549729305 duration=0 
+        invokername=AdminUser invokercldbid=2 invokeruid=QuietTeamspeak= 
+        reason=Spam enforcements=0"#;
+
+        #[test]
+        fn test() {
+            TEST_STRING
+                .split('|')
+                .map(|s| BanEntry::from_query(s))
+                .for_each(|entry| drop(entry));
+        }
+    }
+
+    impl FromQueryString for BanEntry {}
+}
+
 pub mod config {
     use anyhow::anyhow;
     use serde_derive::Deserialize;
@@ -525,6 +611,7 @@ pub mod config {
         privilege_group_id: i64,
         redis_server: Option<String>,
         ignore_user: Option<Vec<String>>,
+        whitelist_ip: Option<Vec<String>>,
     }
 
     impl Server {
@@ -546,6 +633,9 @@ pub mod config {
         }
         pub fn ignore_user_name(&self) -> Vec<String> {
             self.ignore_user.clone().unwrap_or_default()
+        }
+        pub fn whitelist_ip(&self) -> Vec<String> {
+            self.whitelist_ip.clone().unwrap_or_default()
         }
     }
 
