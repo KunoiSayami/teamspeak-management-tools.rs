@@ -57,7 +57,7 @@ async fn try_init_connection(
 async fn init_connection(config: &Config, sid: i64) -> anyhow::Result<SocketConn> {
     let cfg = config.raw_query();
     let mut conn = SocketConn::connect(&cfg.server(), cfg.port()).await?;
-    conn.login(cfg.user(), &cfg.password())
+    conn.login(cfg.user(), cfg.password())
         .await
         .map_err(|e| anyhow!("Login failed. {:?}", e))?;
 
@@ -80,13 +80,9 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
 
     let auto_channel_handler = tokio::spawn(auto_channel_staff(
         conn2,
-        config.server().channels(),
-        config.server().privilege_group_id(),
-        config.server().redis_server(),
-        config.misc().interval(),
         trigger_receiver,
-        config.channel_permissions(),
         private_message_sender.clone(),
+        config.clone(),
     ));
 
     let auto_channel_instance =
@@ -96,11 +92,9 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
         conn1,
         private_message_receiver,
         telegram_sender,
-        config.misc().interval(),
         alt_signal,
-        config.server().ignore_user_name(),
         auto_channel_instance,
-        config.server().whitelist_ip(),
+        config.clone(),
     ));
 
     let telegram_handler = tokio::spawn(telegram_thread(
@@ -114,7 +108,7 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
         _ = async {
             tokio::signal::ctrl_c().await.unwrap();
             info!("Recv SIGINT, send signal to thread.");
-            private_message_sender // TODO: check performance
+            private_message_sender
                 .send(PrivateMessageRequest::Terminate)
                 .map_err(|_| error!("Send terminate error"))
                 .await

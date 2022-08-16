@@ -4,6 +4,7 @@ use crate::datastructures::{
     NotifyTextMessage,
 };
 use crate::socketlib::SocketConn;
+use crate::Config;
 use anyhow::anyhow;
 use futures_util::future::FutureExt;
 use log::{debug, error, info, trace, warn};
@@ -140,16 +141,138 @@ pub async fn telegram_thread(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
+pub async fn staff(
+    line: &str,
+    received: &mut bool,
+    ignore_list: &[String],
+    monitor_channel: &AutoChannelInstance,
+    whitelist_ip: &Vec<String>,
+    client_map: &mut HashMap<i64, (String, bool)>,
+    sender: &mpsc::Sender<TelegramData>,
+    current_time: &str,
+    conn: &mut SocketConn,
+) -> anyhow::Result<()> {
+    if line.starts_with("notifycliententerview") {
+        let view = NotifyClientEnterView::from_query(line)
+            .map_err(|e| anyhow!("Got error while deserialize enter view: {:?}", e))?;
+        let is_server_query = view.client_unique_identifier().eq("ServerQuery")
+            || ignore_list
+                .iter()
+                .any(|element| element.eq(view.client_unique_identifier()));
+        client_map.insert(
+            view.client_id(),
+            (view.client_nickname().to_string(), is_server_query),
+        );
+        if is_server_query {
+            return Ok(());
+        }
+        tokio::join!(
+            monitor_channel.send(view.clone().into()).map(|result| {
+                result.map(|sent| {
+                    if sent {
+                        trace!("Notify auto channel thread")
+                    }
+                })
+            }),
+            sender
+                .send(TelegramData::from_enter(current_time.to_string(), view))
+                .map(|result| result
+                    .map_err(|_| error!("Got error while send data to telegram"))
+                    .ok())
+        )
+        .0?;
+        return Ok(());
+    }
+    if line.starts_with("notifyclientleftview") {
+        let view = NotifyClientLeftView::from_query(line)
+            .map_err(|e| anyhow!("Got error while deserialize left view: {:?}", e))?;
+        if !client_map.contains_key(&view.client_id()) {
+            warn!("Can't find client: {:?}", view.client_id());
+            return Ok(());
+        }
+        let nickname = client_map.get(&view.client_id()).unwrap();
+        if nickname.1 {
+            return Ok(());
+        }
+        sender
+            .send(TelegramData::from_left(
+                current_time.to_string(),
+                &view,
+                nickname.0.clone(),
+            ))
+            .await
+            .map_err(|_| error!("Got error while send data to telegram"))
+            .ok();
+        client_map.remove(&view.client_id());
+        return Ok(());
+    }
+    if line.contains("notifyclientmoved") && monitor_channel.valid() {
+        let view = NotifyClientMovedView::from_query(line)
+            .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
+        monitor_channel.send(view.into()).await.map(|sent| {
+            if sent {
+                trace!("Notify auto channel thread")
+            }
+        })?;
+        return Ok(());
+    }
+    if line.contains("notifytextmessage") && monitor_channel.valid() {
+        let view = NotifyTextMessage::from_query(line)
+            .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
+        if !view.msg().eq("!reset") {
+            return Ok(());
+        }
+        monitor_channel
+            .send_signal(AutoChannelEvent::DeleteChannel(
+                view.invoker_id(),
+                view.invoker_uid().to_string(),
+            ))
+            .await
+            .map(|_| {
+                info!(
+                    "Notify auto channel thread reset {}({})",
+                    view.invoker_name(),
+                    view.invoker_uid()
+                )
+            })?;
+        return Ok(());
+    }
+    if line.starts_with("banid") {
+        if whitelist_ip.is_empty() {
+            return Ok(());
+        }
+        for entry in line.split('|').map(BanEntry::from_query) {
+            let entry = entry?;
+            if whitelist_ip.iter().any(|ip| entry.ip().eq(ip)) {
+                conn.ban_del(entry.ban_id()).await.map(|_| {
+                    info!(
+                        "Remove whitelist ip {} from ban list (was {})",
+                        entry.ip(),
+                        entry
+                    )
+                })?
+            }
+        }
+        return Ok(());
+    }
+    if line.contains("virtualserver_status=") {
+        *received = true;
+    }
+    Ok(())
+}
+
 pub async fn observer_thread(
     mut conn: SocketConn,
     mut recv: mpsc::Receiver<PrivateMessageRequest>,
     sender: mpsc::Sender<TelegramData>,
-    interval: u64,
     notify_signal: Arc<Mutex<bool>>,
-    ignore_list: Vec<String>,
     monitor_channel: AutoChannelInstance,
-    whitelist_ip: Vec<String>,
+    config: Config,
 ) -> anyhow::Result<()> {
+    let interval = config.misc().interval();
+    let whitelist_ip = config.server().whitelist_ip();
+    let ignore_list = config.server().ignore_user_name();
     info!(
         "Version: {}, interval: {}, ban list checker: {}",
         env!("CARGO_PKG_VERSION"),
@@ -256,113 +379,19 @@ pub async fn observer_thread(
                 continue;
             }
             trace!("{}", line);
-            if line.starts_with("notifycliententerview") {
-                let view = NotifyClientEnterView::from_query(line)
-                    .map_err(|e| anyhow!("Got error while deserialize enter view: {:?}", e))?;
-                let is_server_query = view.client_unique_identifier().eq("ServerQuery")
-                    || ignore_list
-                        .iter()
-                        .any(|element| element.eq(view.client_unique_identifier()));
-                client_map.insert(
-                    view.client_id(),
-                    (view.client_nickname().to_string(), is_server_query),
-                );
-                if is_server_query {
-                    continue;
-                }
-                tokio::join!(
-                    monitor_channel.send(view.clone().into()).map(|result| {
-                        result.map(|sent| {
-                            if sent {
-                                trace!("Notify auto channel thread")
-                            }
-                        })
-                    }),
-                    sender
-                        .send(TelegramData::from_enter(current_time.clone(), view))
-                        .map(|result| result
-                            .map_err(|_| error!("Got error while send data to telegram"))
-                            .ok())
-                )
-                .0?;
-                continue;
-            }
-            if line.starts_with("notifyclientleftview") {
-                let view = NotifyClientLeftView::from_query(line)
-                    .map_err(|e| anyhow!("Got error while deserialize left view: {:?}", e))?;
-                if !client_map.contains_key(&view.client_id()) {
-                    warn!("Can't find client: {:?}", view.client_id());
-                    continue;
-                }
-                let nickname = client_map.get(&view.client_id()).unwrap();
-                if nickname.1 {
-                    continue;
-                }
-                sender
-                    .send(TelegramData::from_left(
-                        current_time.clone(),
-                        &view,
-                        nickname.0.clone(),
-                    ))
-                    .await
-                    .map_err(|_| error!("Got error while send data to telegram"))
-                    .ok();
-                client_map.remove(&view.client_id());
-                continue;
-            }
-            if line.contains("notifyclientmoved") && monitor_channel.valid() {
-                let view = NotifyClientMovedView::from_query(line)
-                    .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
-                monitor_channel.send(view.into()).await.map(|sent| {
-                    if sent {
-                        trace!("Notify auto channel thread")
-                    }
-                })?;
-                continue;
-            }
-            if line.contains("notifytextmessage") && monitor_channel.valid() {
-                let view = NotifyTextMessage::from_query(line)
-                    .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
-                if !view.msg().eq("!reset") {
-                    continue;
-                }
-                monitor_channel
-                    .send_signal(AutoChannelEvent::DeleteChannel(
-                        view.invoker_id(),
-                        view.invoker_uid().to_string(),
-                    ))
-                    .await
-                    .map(|_| {
-                        info!(
-                            "Notify auto channel thread reset {}({})",
-                            view.invoker_name(),
-                            view.invoker_uid()
-                        )
-                    })?;
-                continue;
-            }
-            if line.starts_with("banid") {
-                if whitelist_ip.is_empty() {
-                    continue;
-                }
-                for entry in line.split('|').map(|element| BanEntry::from_query(element)) {
-                    let entry = entry?;
-                    if whitelist_ip.iter().any(|ip| entry.ip().eq(ip)) {
-                        conn.ban_del(entry.ban_id()).await.map(|_| {
-                            info!(
-                                "Remove whitelist ip {} from ban list (was {})",
-                                entry.ip(),
-                                entry
-                            )
-                        })?
-                    }
-                }
-                continue;
-            }
-            if line.contains("virtualserver_status=") {
-                received = true;
-                continue;
-            }
+
+            staff(
+                line,
+                &mut received,
+                &ignore_list,
+                &monitor_channel,
+                &whitelist_ip,
+                &mut client_map,
+                &sender,
+                &current_time,
+                &mut conn,
+            )
+            .await?;
         }
         //trace!("message loop end");
     }

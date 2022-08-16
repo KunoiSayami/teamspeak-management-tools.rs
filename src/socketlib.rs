@@ -293,7 +293,7 @@ impl SocketConn {
     /// Parameter sind nicht möglich. Beim Löschen eines Channels
     /// geht das Abonnement nicht verloren.
     pub async fn register_channel_events(&mut self) -> QueryResult<()> {
-        self.basic_operation(&format!("servernotifyregister event=channel id=0\n\r",))
+        self.basic_operation("servernotifyregister event=channel id=0\n\r")
             .await
     }
 

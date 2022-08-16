@@ -1,11 +1,11 @@
 use crate::datastructures::notifies::ClientBasicInfo;
 use crate::observer::PrivateMessageRequest;
 use crate::socketlib::SocketConn;
+use crate::Config;
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
-use std::collections::HashMap;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
@@ -53,8 +53,7 @@ impl AutoChannelInstance {
         if !self.channel_ids.iter().any(|id| id == &view.channel_id()) {
             return Ok(false);
         }
-        self.send_signal(AutoChannelEvent::Update(view.into()))
-            .await
+        self.send_signal(AutoChannelEvent::Update(view)).await
     }
 
     /*pub fn new_none() -> Self {
@@ -75,21 +74,20 @@ impl AutoChannelInstance {
 
 pub async fn auto_channel_staff(
     mut conn: SocketConn,
-    monitor_channels: Vec<i64>,
-    privilege_group: i64,
-    redis_server: String,
-    _interval: u64,
     mut receiver: mpsc::Receiver<AutoChannelEvent>,
-    channel_permissions: HashMap<i64, Vec<(u64, i64)>>,
     private_message_sender: mpsc::Sender<PrivateMessageRequest>,
+    config: Config,
 ) -> anyhow::Result<()> {
-    let redis = redis::Client::open(redis_server)
+    let redis = redis::Client::open(config.server().redis_server())
         .map_err(|e| anyhow!("Connect redis server error! {:?}", e))?;
     let mut redis_conn = redis
         .get_async_connection()
         .await
         .map_err(|e| anyhow!("Get redis connection error: {:?}", e))?;
 
+    let monitor_channels = config.server().channels();
+    let privilege_group = config.server().privilege_group_id();
+    let channel_permissions = config.channel_permissions();
     conn.change_nickname("auto channel")
         .await
         .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
