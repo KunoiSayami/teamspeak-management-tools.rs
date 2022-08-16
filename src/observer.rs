@@ -1,13 +1,11 @@
+use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
 use crate::datastructures::{
-    FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
+    BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
     NotifyTextMessage,
 };
-use futures_util::future::FutureExt;
-
-use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
-use crate::datastructures::ban_entry::BanEntry;
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
+use futures_util::future::FutureExt;
 use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::fmt::Formatter;
@@ -153,7 +151,7 @@ pub async fn observer_thread(
     whitelist_ip: Vec<String>,
 ) -> anyhow::Result<()> {
     info!(
-        "Version: {}, interval: {},  ban list checker: {}",
+        "Version: {}, interval: {}, ban list checker: {}",
         env!("CARGO_PKG_VERSION"),
         interval,
         !whitelist_ip.is_empty()
@@ -204,6 +202,26 @@ pub async fn observer_thread(
             conn.logout().await.ok();
             break;
         }*/
+
+        if let Ok(Some(message)) =
+            tokio::time::timeout(Duration::from_millis(interval), recv.recv()).await
+        {
+            match message {
+                PrivateMessageRequest::Message(client_id, message) => {
+                    conn.send_text_message_unchecked(client_id, &message)
+                        .await
+                        .map(|_| trace!("Send message to {}", client_id))
+                        .map_err(|e| {
+                            anyhow!("Got error while send message to {} {:?}", client_id, e)
+                        })?;
+                }
+                PrivateMessageRequest::Terminate => {
+                    info!("Exit from staff thread!");
+                    conn.logout().await.ok();
+                    break;
+                }
+            }
+        }
 
         //trace!("Read data");
         let data = conn
@@ -323,7 +341,10 @@ pub async fn observer_thread(
                     })?;
                 continue;
             }
-            if line.starts_with("banid") && !whitelist_ip.is_empty() {
+            if line.starts_with("banid") {
+                if whitelist_ip.is_empty() {
+                    continue;
+                }
                 for entry in line.split('|').map(|element| BanEntry::from_query(element)) {
                     let entry = entry?;
                     if whitelist_ip.iter().any(|ip| entry.ip().eq(ip)) {
@@ -336,6 +357,7 @@ pub async fn observer_thread(
                         })?
                     }
                 }
+                continue;
             }
             if line.contains("virtualserver_status=") {
                 received = true;
@@ -343,26 +365,6 @@ pub async fn observer_thread(
             }
         }
         //trace!("message loop end");
-        if let Ok(Some(message)) =
-            tokio::time::timeout(Duration::from_millis(interval), recv.recv()).await
-        {
-            //trace!("Checking message");
-            match message {
-                PrivateMessageRequest::Message(client_id, message) => {
-                    conn.send_text_message_unchecked(client_id, &message)
-                        .await
-                        .map(|_| trace!("Send message to {}", client_id))
-                        .map_err(|e| {
-                            anyhow!("Got error while send message to {} {:?}", client_id, e)
-                        })?;
-                }
-                PrivateMessageRequest::Terminate => {
-                    info!("Exit from staff thread!");
-                    conn.logout().await.ok();
-                    break;
-                }
-            }
-        }
     }
     monitor_channel
         .send_terminate()

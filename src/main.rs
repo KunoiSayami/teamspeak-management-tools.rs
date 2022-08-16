@@ -124,6 +124,7 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
             error!("Force exit program.");
             std::process::exit(137);
         } => {
+            unsafe { unreachable_unchecked() }
         }
         _ = async move {
             loop {
@@ -131,7 +132,9 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
                 let mut i = keepalive_signal.lock().await;
                 *i = true;
             }
-        } => {}
+        } => {
+            unsafe { unreachable_unchecked() }
+        }
         ret = observer_handler => {
             ret??
         }

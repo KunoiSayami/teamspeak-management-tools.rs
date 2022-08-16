@@ -500,7 +500,7 @@ pub mod ban_entry {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             write!(
                 f,
-                "id: {}, reason: {}, invoker: {}, invoker name: {}",
+                "id: {}, reason: {}, invoker: {}, operator: {}",
                 self.ban_id(),
                 self.reason(),
                 self.invoker_uid(),
@@ -814,6 +814,7 @@ mod status_result {
     }
 }
 
+pub use ban_entry::BanEntry;
 pub use channel::Channel;
 pub use client::Client;
 pub use client_query_result::DatabaseId;
