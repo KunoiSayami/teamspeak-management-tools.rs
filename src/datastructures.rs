@@ -47,12 +47,12 @@ pub mod create_channel {
 
     impl FromQueryString for CreateChannel {}
 }
-
+/*
 pub mod channel {
     use super::FromQueryString;
     use serde_derive::Deserialize;
 
-    #[allow(dead_code)]
+    //#[allow(dead_code)]
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Channel {
         cid: i64,
@@ -63,7 +63,6 @@ pub mod channel {
         channel_needed_subscribe_power: i64,
     }
 
-    #[allow(dead_code)]
     impl Channel {
         pub fn cid(&self) -> i64 {
             self.cid
@@ -87,12 +86,11 @@ pub mod channel {
 
     impl FromQueryString for Channel {}
 }
-
+*/
 pub mod client {
     use super::FromQueryString;
     use serde_derive::Deserialize;
 
-    #[allow(dead_code)]
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Client {
         clid: i64,
@@ -103,7 +101,6 @@ pub mod client {
         client_nickname: String,
     }
 
-    #[allow(dead_code)]
     impl Client {
         pub fn client_id(&self) -> i64 {
             self.clid
@@ -117,6 +114,7 @@ pub mod client {
         pub fn client_type(&self) -> i64 {
             self.client_type
         }
+        #[cfg(test)]
         pub fn client_unique_identifier(&self) -> String {
             format!("{}", self.client_database_id)
         }
@@ -185,29 +183,27 @@ pub mod notifies {
         }
     }
 
-    #[allow(dead_code)]
     #[derive(Clone, Debug, Deserialize)]
     pub struct NotifyClientMovedView {
         #[serde(rename = "ctid")]
         channel_id: i64,
-        #[serde(rename = "reasonid", default)]
+        /*#[serde(rename = "reasonid", default)]
         reason_id: i64,
         #[serde(rename = "invokerid", default)]
         invoker_id: i64,
         #[serde(rename = "invokeruid", default)]
         invoker_uid: String,
         #[serde(rename = "invokername", default)]
-        invoker_name: String,
+        invoker_name: String,*/
         #[serde(rename = "clid", default)]
         client_id: i64,
     }
 
-    #[allow(dead_code)]
     impl NotifyClientMovedView {
         pub fn channel_id(&self) -> i64 {
             self.channel_id
         }
-        pub fn reason_id(&self) -> i64 {
+        /*pub fn reason_id(&self) -> i64 {
             self.reason_id
         }
         pub fn invoker_id(&self) -> i64 {
@@ -218,7 +214,7 @@ pub mod notifies {
         }
         pub fn invoker_name(&self) -> &str {
             &self.invoker_name
-        }
+        }*/
         pub fn client_id(&self) -> i64 {
             self.client_id
         }
@@ -359,7 +355,6 @@ pub mod query_status {
         }
     }
 
-    #[allow(dead_code)]
     #[derive(Clone, Debug, Deserialize)]
     pub struct QueryStatus {
         id: i32,
@@ -815,7 +810,7 @@ mod status_result {
 }
 
 pub use ban_entry::BanEntry;
-pub use channel::Channel;
+//pub use channel::Channel;
 pub use client::Client;
 pub use client_query_result::DatabaseId;
 pub use config::Config;
