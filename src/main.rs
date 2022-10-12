@@ -68,7 +68,11 @@ async fn init_connection(config: &Config, sid: i64) -> anyhow::Result<SocketConn
     Ok(conn)
 }
 
-async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Result<()> {
+async fn watchdog(
+    conn: (SocketConn, SocketConn),
+    config: Config,
+    output_server_broadcast: Option<String>,
+) -> anyhow::Result<()> {
     let (conn1, conn2) = conn;
 
     //let (exit_sender, exit_receiver) = watch::channel(false);
@@ -95,6 +99,7 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
         alt_signal,
         auto_channel_instance,
         config.clone(),
+        output_server_broadcast.map(|s| s.clone()),
     ));
 
     let telegram_handler = tokio::spawn(telegram_thread(
@@ -166,6 +171,7 @@ async fn watchdog(conn: (SocketConn, SocketConn), config: Config) -> anyhow::Res
 async fn configure_file_bootstrap<P: AsRef<Path>>(
     path: P,
     systemd_mode: bool,
+    output_server_broadcast: Option<String>,
 ) -> anyhow::Result<()> {
     let config = Config::try_from(path.as_ref())?;
     MSG_MOVE_TO_CHANNEL
@@ -177,6 +183,7 @@ async fn configure_file_bootstrap<P: AsRef<Path>>(
     watchdog(
         try_init_connection(&config, config.server().server_id()).await?,
         config,
+        output_server_broadcast,
     )
     .await
 }
@@ -187,6 +194,7 @@ fn main() -> anyhow::Result<()> {
         .args(&[
             arg!([CONFIG_FILE] "Override default configure file location"),
             arg!(--systemd "Start in systemd mode, which enable wait if connect failed"),
+            arg!([SERVER_BROADCAST_OUTPUT_FILE] "Enable output server broadcast to file (beta)"),
         ])
         .get_matches();
 
@@ -199,8 +207,14 @@ fn main() -> anyhow::Result<()> {
         .build()
         .unwrap()
         .block_on(configure_file_bootstrap(
-            matches.value_of("CONFIG_FILE").unwrap_or("config.toml"),
-            matches.is_present("systemd"),
+            matches
+                .get_one("CONFIG_FILE")
+                .map(|s: &String| s.clone())
+                .unwrap_or_else(|| "config.toml".to_string()),
+            matches.index_of("systemd").is_some(),
+            matches
+                .get_one("SERVER_BROADCAST_OUTPUT_FILE")
+                .map(|s: &String| s.to_string()),
         ))?;
 
     Ok(())

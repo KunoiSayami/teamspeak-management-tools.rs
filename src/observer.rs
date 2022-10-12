@@ -1,4 +1,5 @@
 use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
+use crate::datastructures::output;
 use crate::datastructures::{
     BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
     NotifyTextMessage,
@@ -15,6 +16,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::{mpsc, Mutex};
 
 pub enum PrivateMessageRequest {
@@ -152,6 +155,7 @@ pub async fn staff(
     sender: &mpsc::Sender<TelegramData>,
     current_time: &str,
     conn: &mut SocketConn,
+    output_file: Option<Arc<Mutex<File>>>,
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -176,12 +180,33 @@ pub async fn staff(
                 })
             }),
             sender
-                .send(TelegramData::from_enter(current_time.to_string(), view))
+                .send(TelegramData::from_enter(
+                    current_time.to_string(),
+                    view.clone()
+                ))
                 .map(|result| result
                     .map_err(|_| error!("Got error while send data to telegram"))
-                    .ok())
+                    .ok()),
+            async {
+                if let Some(file) = output_file {
+                    let mut file = file.lock().await;
+                    file.write(
+                        output::UserInChannel::new(
+                            view.client_id(),
+                            view.client_unique_identifier().to_string(),
+                            view.channel_id(),
+                        )
+                        .with_new_line()
+                        .as_bytes(),
+                    )
+                    .await
+                    .map_err(|e| error!("Can't write output to file: {:?}", e))
+                    .ok();
+                }
+            }
         )
         .0?;
+
         return Ok(());
     }
     if line.starts_with("notifyclientleftview") {
@@ -210,11 +235,33 @@ pub async fn staff(
     if line.contains("notifyclientmoved") && monitor_channel.valid() {
         let view = NotifyClientMovedView::from_query(line)
             .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
-        monitor_channel.send(view.into()).await.map(|sent| {
-            if sent {
-                trace!("Notify auto channel thread")
-            }
-        })?;
+        monitor_channel
+            .send(view.clone().into())
+            .await
+            .map(|sent| {
+                if sent {
+                    trace!("Notify auto channel thread")
+                }
+            })?;
+        if let Some(file) = output_file {
+            let mut file = file.lock().await;
+            file.write(
+                output::UserMoveToChannel::new(
+                    view.client_id(),
+                    view.channel_id(),
+                    if view.invoker_uid().is_empty() {
+                        None
+                    } else {
+                        Some(view.invoker_uid().to_string())
+                    },
+                )
+                .with_new_line()
+                .as_bytes(),
+            )
+            .await
+            .map_err(|e| error!("Can't write output to file: {:?}", e))
+            .ok();
+        }
         return Ok(());
     }
     if line.contains("notifytextmessage") && monitor_channel.valid() {
@@ -269,6 +316,7 @@ pub async fn observer_thread(
     notify_signal: Arc<Mutex<bool>>,
     monitor_channel: AutoChannelInstance,
     config: Config,
+    output_server_broadcast: Option<String>,
 ) -> anyhow::Result<()> {
     let interval = config.misc().interval();
     let whitelist_ip = config.server().whitelist_ip();
@@ -279,6 +327,19 @@ pub async fn observer_thread(
         interval,
         !whitelist_ip.is_empty()
     );
+
+    let mut output_file = if let Some(ref path) = output_server_broadcast {
+        let f = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .write(true)
+            .open(path)
+            .await
+            .map_err(|e| anyhow!("Unable to open file {} {:?}", path, e))?;
+        Some(f)
+    } else {
+        None
+    };
 
     conn.change_nickname("observer")
         .await
@@ -293,11 +354,28 @@ pub async fn observer_thread(
             continue;
         }
 
+        if let Some(ref mut f) = output_file {
+            f.write(
+                output::UserInChannel::new(
+                    client.client_id(),
+                    client.client_unique_identifier().clone(),
+                    client.channel_id(),
+                )
+                .with_new_line()
+                .as_bytes(),
+            )
+            .await
+            .map_err(|e| error!("Can't write output to file: {:?}", e))
+            .ok();
+        }
+
         client_map.insert(
             client.client_id(),
             (client.client_nickname().to_string(), false),
         );
     }
+
+    let output_file = output_file.map(|f| Arc::new(Mutex::new(f)));
 
     // TODO: Check if this is necessary
     conn.register_observer_events()
@@ -390,6 +468,7 @@ pub async fn observer_thread(
                 &sender,
                 &current_time,
                 &mut conn,
+                output_file.clone(),
             )
             .await?;
         }

@@ -1,12 +1,12 @@
 [package]
 name = "teamspeak-management-tools"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1"
 chrono = "0.4.19"
-clap = "3.2.8"
+clap = "4.0.8"
 country-emoji = "0.2.0"
 env_logger = "0.9"
 futures-util = "0.3.21"
@@ -17,8 +17,8 @@ serde = "1.0"
 serde-teamspeak-querystring = { path = "serde-teamspeak-querystring" }
 serde_derive = "1.0"
 serde_json = "1.0.79"
-teloxide = { version = "0.10.1", default-features = false, features = ["rustls"] }
-teloxide-macros = "0.6.3"
+teloxide = { version = "0.11.0", default-features = false, features = ["rustls"] }
+teloxide-macros = "0.7.0"
 tokio = { version = "1.18", features = ["full"] }
 toml = "0.5"
 

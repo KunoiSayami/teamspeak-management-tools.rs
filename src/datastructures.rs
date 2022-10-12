@@ -97,7 +97,7 @@ pub mod client {
         cid: i64,
         client_database_id: i64,
         client_type: i64,
-        //client_unique_identifier: String,
+        client_unique_identifier: String,
         client_nickname: String,
     }
 
@@ -114,9 +114,8 @@ pub mod client {
         pub fn client_type(&self) -> i64 {
             self.client_type
         }
-        #[cfg(test)]
-        pub fn client_unique_identifier(&self) -> String {
-            format!("{}", self.client_database_id)
+        pub fn client_unique_identifier(&self) -> &String {
+            &self.client_unique_identifier
         }
         pub fn client_nickname(&self) -> &str {
             &self.client_nickname
@@ -190,10 +189,10 @@ pub mod notifies {
         /*#[serde(rename = "reasonid", default)]
         reason_id: i64,
         #[serde(rename = "invokerid", default)]
-        invoker_id: i64,
+        invoker_id: i64,*/
         #[serde(rename = "invokeruid", default)]
         invoker_uid: String,
-        #[serde(rename = "invokername", default)]
+        /*#[serde(rename = "invokername", default)]
         invoker_name: String,*/
         #[serde(rename = "clid", default)]
         client_id: i64,
@@ -208,11 +207,11 @@ pub mod notifies {
         }
         pub fn invoker_id(&self) -> i64 {
             self.invoker_id
-        }
+        }*/
         pub fn invoker_uid(&self) -> &str {
             &self.invoker_uid
         }
-        pub fn invoker_name(&self) -> &str {
+        /*pub fn invoker_name(&self) -> &str {
             &self.invoker_name
         }*/
         pub fn client_id(&self) -> i64 {
@@ -809,6 +808,50 @@ mod status_result {
     }
 }
 
+pub mod server_broadcast_output {
+    use serde_derive::Serialize;
+
+    #[derive(Clone, Debug, Serialize)]
+    pub struct UserInChannel {
+        client_id: i64,
+        client_uid: String,
+        channel_id: i64,
+    }
+
+    impl UserInChannel {
+        pub fn new(client_id: i64, client_uid: String, channel_id: i64) -> Self {
+            Self {
+                client_id,
+                client_uid,
+                channel_id,
+            }
+        }
+        pub fn with_new_line(&self) -> String {
+            format!("{}\n", serde_json::to_string(self).unwrap())
+        }
+    }
+
+    #[derive(Clone, Debug, Serialize)]
+    pub struct UserMoveToChannel {
+        client_id: i64,
+        channel_id: i64,
+        moved_by: Option<String>,
+    }
+
+    impl UserMoveToChannel {
+        pub fn new(client_id: i64, channel_id: i64, moved_by: Option<String>) -> Self {
+            Self {
+                client_id,
+                channel_id,
+                moved_by,
+            }
+        }
+        pub fn with_new_line(&self) -> String {
+            format!("{}\n", serde_json::to_string(self).unwrap())
+        }
+    }
+}
+
 pub use ban_entry::BanEntry;
 //pub use channel::Channel;
 pub use client::Client;
@@ -820,6 +863,7 @@ pub use notifies::{
 };
 pub use query_status::{QueryStatus, WebQueryStatus};
 use serde::Deserialize;
+pub use server_broadcast_output as output;
 pub use server_info::ServerInfo;
 pub use status_result::{QueryError, QueryResult};
 pub use whoami::WhoAmI;
