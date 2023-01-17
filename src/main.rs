@@ -19,7 +19,7 @@ use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
 
 static SYSTEMD_MODE: OnceCell<bool> = OnceCell::new();
-const SYSTEMD_MODE_RETRIE_TIMES: u32 = 3;
+const SYSTEMD_MODE_RETRIES_TIMES: u32 = 3;
 
 async fn try_init_connection(
     config: &Config,
@@ -27,7 +27,7 @@ async fn try_init_connection(
 ) -> anyhow::Result<(SocketConn, SocketConn)> {
     let retries = if *SYSTEMD_MODE.get().unwrap() {
         debug!("Systemd mode is present, will retry if connection failed.");
-        SYSTEMD_MODE_RETRIE_TIMES
+        SYSTEMD_MODE_RETRIES_TIMES
     } else {
         1
     };
@@ -42,7 +42,7 @@ async fn try_init_connection(
                 ))
             }
             Err(e) => {
-                if retries == SYSTEMD_MODE_RETRIE_TIMES && step < retries - 1 {
+                if retries == SYSTEMD_MODE_RETRIES_TIMES && step < retries - 1 {
                     warn!("Connect server error, will retry after 10 seconds, {}", e);
                     tokio::time::sleep(Duration::from_secs(10)).await;
                 } else {
