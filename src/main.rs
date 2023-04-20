@@ -8,7 +8,7 @@ use crate::datastructures::Config;
 use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
 use crate::socketlib::SocketConn;
 use anyhow::anyhow;
-use clap::{arg, Command};
+use clap::{arg, command};
 use futures_util::TryFutureExt;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use once_cell::sync::OnceCell;
@@ -17,6 +17,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
+
+static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
+static OBSERVER_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
 
 static SYSTEMD_MODE: OnceCell<bool> = OnceCell::new();
 const SYSTEMD_MODE_RETRIES_TIMES: u32 = 3;
@@ -99,7 +102,7 @@ async fn watchdog(
         alt_signal,
         auto_channel_instance,
         config.clone(),
-        output_server_broadcast.map(|s| s.clone()),
+        output_server_broadcast,
     ));
 
     let telegram_handler = tokio::spawn(telegram_thread(
@@ -142,10 +145,10 @@ async fn watchdog(
     tokio::select! {
         _ = async {
             tokio::signal::ctrl_c().await.unwrap();
-            error!("Force exit program.");
+            error!("Force exit program (waiting auto channel handler).");
             std::process::exit(137);
         } => {
-
+            unsafe { unreachable_unchecked() }
         }
         ret = auto_channel_handler => {
             ret??;
@@ -155,10 +158,10 @@ async fn watchdog(
     tokio::select! {
         _ = async {
             tokio::signal::ctrl_c().await.unwrap();
-            error!("Force exit program.");
+            error!("Force exit program (waiting telegram handler).");
             std::process::exit(137);
         } => {
-
+            unsafe { unreachable_unchecked() }
         }
         ret = telegram_handler => {
             ret??;
@@ -189,12 +192,13 @@ async fn configure_file_bootstrap<P: AsRef<Path>>(
 }
 
 fn main() -> anyhow::Result<()> {
-    let matches = Command::new(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"))
+    let matches = command!()
         .args(&[
             arg!([CONFIG_FILE] "Override default configure file location"),
             arg!(--systemd "Start in systemd mode, which enable wait if connect failed"),
             arg!([SERVER_BROADCAST_OUTPUT_FILE] "Enable output server broadcast to file (beta)"),
+            arg!(--observer_name [OBSERVER_NAME] "Override observer nickname"),
+            arg!(--autochannel_name [AUTO_CHANNEL_NAME] "Override auto channel nickname"),
         ])
         .get_matches();
 
@@ -202,6 +206,19 @@ fn main() -> anyhow::Result<()> {
         .filter_module("rustls", LevelFilter::Warn)
         .filter_module("reqwest", LevelFilter::Warn)
         .init();
+
+    if let Some(nickname) = matches.get_one::<String>("observer_name") {
+        OBSERVER_NICKNAME_OVERRIDE
+            .set(nickname.to_string())
+            .unwrap();
+    }
+
+    if let Some(nickname) = matches.get_one::<String>("autochannel_name") {
+        AUTO_CHANNEL_NICKNAME_OVERRIDE
+            .set(nickname.to_string())
+            .unwrap();
+    }
+
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -209,9 +226,9 @@ fn main() -> anyhow::Result<()> {
         .block_on(configure_file_bootstrap(
             matches
                 .get_one("CONFIG_FILE")
-                .map(|s: &String| s.clone())
+                .cloned()
                 .unwrap_or_else(|| "config.toml".to_string()),
-            matches.index_of("systemd").is_some(),
+            matches.get_flag("systemd"),
             matches
                 .get_one("SERVER_BROADCAST_OUTPUT_FILE")
                 .map(|s: &String| s.to_string()),

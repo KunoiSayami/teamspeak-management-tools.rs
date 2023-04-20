@@ -1,11 +1,12 @@
 use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
+use crate::datastructures::config::MutePorter;
 use crate::datastructures::output;
 use crate::datastructures::{
     BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
     NotifyTextMessage,
 };
 use crate::socketlib::SocketConn;
-use crate::Config;
+use crate::{Config, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use futures_util::future::FutureExt;
 use log::{debug, error, info, trace, warn};
@@ -156,6 +157,7 @@ pub async fn staff(
     current_time: &str,
     conn: &mut SocketConn,
     output_file: Option<Arc<Mutex<File>>>,
+    mute_porter: &MutePorter,
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -305,6 +307,47 @@ pub async fn staff(
     }
     if line.contains("virtualserver_status=") {
         *received = true;
+        if !mute_porter.enable() {
+            return Ok(());
+        }
+        for client in conn
+            .query_client_list()
+            .await
+            .map_err(|e| anyhow!("Unable query clients: {:?}", e))?
+        {
+            if client.is_client_valid()
+                && client.channel_id() == mute_porter.monitor_channel()
+                && !mute_porter.check_whitelist(client.client_database_id())
+            {
+                if let Some(true) = conn
+                    .query_client_info(client.client_id())
+                    .await
+                    .map_err(|e| error!("Unable query client information: {:?}", e))
+                    .ok()
+                    .flatten()
+                    .map(|r| r.is_client_muted())
+                {
+                    conn.move_client_to_channel(client.client_id(), mute_porter.target_channel())
+                        .await
+                        .map_err(|e| {
+                            error!(
+                                "Unable move client {} to channel {}: {:?}",
+                                client.client_id(),
+                                mute_porter.target_channel(),
+                                e
+                            )
+                        })
+                        .map(|_| {
+                            info!(
+                                "Moved {} to {}",
+                                client.client_id(),
+                                mute_porter.target_channel()
+                            )
+                        })
+                        .ok();
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -322,10 +365,11 @@ pub async fn observer_thread(
     let whitelist_ip = config.server().whitelist_ip();
     let ignore_list = config.server().ignore_user_name();
     info!(
-        "Version: {}, interval: {}, ban list checker: {}",
+        "Version: {}, interval: {}, ban list checker: {}, mute porter: {}",
         env!("CARGO_PKG_VERSION"),
         interval,
-        !whitelist_ip.is_empty()
+        !whitelist_ip.is_empty(),
+        config.mute_porter().enable()
     );
 
     let mut output_file = if let Some(ref path) = output_server_broadcast {
@@ -341,7 +385,7 @@ pub async fn observer_thread(
         None
     };
 
-    conn.change_nickname("observer")
+    conn.change_nickname(OBSERVER_NICKNAME_OVERRIDE.get_or_init(|| "observer".to_string()))
         .await
         .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
     let mut client_map: HashMap<i64, (String, bool)> = HashMap::new();
@@ -355,10 +399,19 @@ pub async fn observer_thread(
         }
 
         if let Some(ref mut f) = output_file {
+            let unique_identifier = if let Ok(Some(id)) = conn
+                .query_client_info(client.client_id())
+                .await
+                .map(|r| r.map(|info| info.client_unique_identifier()))
+            {
+                id
+            } else {
+                format!("{}", client.client_database_id())
+            };
             f.write(
                 output::UserInChannel::new(
                     client.client_id(),
-                    client.client_unique_identifier().clone(),
+                    unique_identifier,
                     client.channel_id(),
                 )
                 .with_new_line()
@@ -469,6 +522,7 @@ pub async fn observer_thread(
                 &current_time,
                 &mut conn,
                 output_file.clone(),
+                config.mute_porter(),
             )
             .await?;
         }

@@ -87,26 +87,62 @@ pub mod channel {
     impl FromQueryString for Channel {}
 }
 */
-pub mod client {
+
+pub mod client_from_list {
+
     use super::FromQueryString;
     use serde_derive::Deserialize;
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Client {
-        clid: i64,
-        cid: i64,
+        #[serde(rename = "cid")]
+        channel_id: i64,
+        #[serde(rename = "clid")]
+        client_id: i64,
         client_database_id: i64,
         client_type: i64,
-        client_unique_identifier: String,
+    }
+
+    impl Client {
+        pub fn channel_id(&self) -> i64 {
+            self.channel_id
+        }
+        pub fn client_id(&self) -> i64 {
+            self.client_id
+        }
+        pub fn client_database_id(&self) -> i64 {
+            self.client_database_id
+        }
+        pub fn is_client_valid(&self) -> bool {
+            self.client_type == 0
+        }
+    }
+
+    impl FromQueryString for Client {}
+}
+
+// TODO: Rename this
+mod client {
+    use super::FromQueryString;
+    use serde_derive::Deserialize;
+
+    #[derive(Clone, Debug, Default, Deserialize)]
+    pub struct Client {
+        #[serde(rename = "cid")]
+        channel_id: i64,
+        #[serde(rename = "clid")]
+        client_id: i64,
+        client_database_id: i64,
+        client_type: i64,
         client_nickname: String,
     }
 
     impl Client {
         pub fn client_id(&self) -> i64 {
-            self.clid
+            self.client_id
         }
         pub fn channel_id(&self) -> i64 {
-            self.cid
+            self.channel_id
         }
         pub fn client_database_id(&self) -> i64 {
             self.client_database_id
@@ -114,8 +150,10 @@ pub mod client {
         pub fn client_type(&self) -> i64 {
             self.client_type
         }
-        pub fn client_unique_identifier(&self) -> &String {
-            &self.client_unique_identifier
+        #[allow(unused)]
+        #[deprecated(since = "1.1.1", note = "Should use client_database_id instead")]
+        pub fn client_unique_identifier(&self) -> String {
+            format!("{}", self.client_database_id())
         }
         pub fn client_nickname(&self) -> &str {
             &self.client_nickname
@@ -696,10 +734,39 @@ pub mod config {
         }
     }
 
+    #[derive(Clone, Debug, Default, Deserialize)]
+    pub struct MutePorter {
+        enable: bool,
+        #[serde(rename = "monitor")]
+        monitor_channel: i64,
+        #[serde(rename = "target")]
+        target_channel: i64,
+        #[serde(default)]
+        whitelist: Vec<i64>,
+    }
+
+    impl MutePorter {
+        pub fn enable(&self) -> bool {
+            self.enable
+        }
+        pub fn monitor_channel(&self) -> i64 {
+            self.monitor_channel
+        }
+        pub fn target_channel(&self) -> i64 {
+            self.target_channel
+        }
+
+        pub fn check_whitelist(&self, client_id: i64) -> bool {
+            self.whitelist.contains(&client_id)
+        }
+    }
+
     #[derive(Clone, Debug, Deserialize)]
     pub struct Config {
         server: Server,
         misc: Misc,
+        #[serde(default)]
+        mute_porter: MutePorter,
         custom_message: Option<Message>,
         permissions: Option<Vec<Permission>>,
         telegram: Telegram,
@@ -742,6 +809,9 @@ pub mod config {
                     m
                 }
             }
+        }
+        pub fn mute_porter(&self) -> &MutePorter {
+            &self.mute_porter
         }
     }
 
@@ -852,9 +922,59 @@ pub mod server_broadcast_output {
     }
 }
 
+mod client_info {
+    use super::FromQueryString;
+    use serde_derive::Deserialize;
+
+    #[derive(Clone, Debug, Default, Deserialize)]
+    pub struct ClientInfo {
+        /*#[serde(rename = "clid")]
+        channel_id: i64,
+        #[serde(rename = "cid")]
+        client_id: i64,*/
+        client_input_muted: bool,
+        client_output_muted: bool,
+        /*#[serde(rename = "client_outputonly_muted")]
+        client_output_only_muted: bool,*/
+        client_input_hardware: bool,
+        client_output_hardware: bool,
+        client_unique_identifier: String,
+        client_away: bool,
+    }
+
+    impl ClientInfo {
+        pub fn is_client_muted(&self) -> bool {
+            self.client_away
+                || self.client_input_muted
+                || self.client_output_muted
+                || !self.client_output_hardware
+                || !self.client_input_hardware
+        }
+
+        pub fn client_unique_identifier(self) -> String {
+            self.client_unique_identifier
+        }
+    }
+
+    impl FromQueryString for ClientInfo {}
+}
+
+/*mod staff_parameter {
+
+    #[derive(Debug)]
+    pub struct StaffParameter<'a> {
+        line: &'a str,
+
+    }
+
+}
+*/
+
 pub use ban_entry::BanEntry;
 //pub use channel::Channel;
 pub use client::Client;
+pub use client_from_list::Client as ListedClient;
+pub use client_info::ClientInfo;
 pub use client_query_result::DatabaseId;
 pub use config::Config;
 pub use create_channel::CreateChannel;

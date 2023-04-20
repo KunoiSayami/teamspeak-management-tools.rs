@@ -1,7 +1,7 @@
 use crate::datastructures::notifies::ClientBasicInfo;
 use crate::observer::PrivateMessageRequest;
 use crate::socketlib::SocketConn;
-use crate::Config;
+use crate::{Config, AUTO_CHANNEL_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;
@@ -88,7 +88,7 @@ pub async fn auto_channel_staff(
     let monitor_channels = config.server().channels();
     let privilege_group = config.server().privilege_group_id();
     let channel_permissions = config.channel_permissions();
-    conn.change_nickname("auto channel")
+    conn.change_nickname(AUTO_CHANNEL_NICKNAME_OVERRIDE.get_or_init(|| "auto channel".to_string()))
         .await
         .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
 

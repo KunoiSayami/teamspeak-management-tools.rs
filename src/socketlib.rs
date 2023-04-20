@@ -1,5 +1,6 @@
 use crate::datastructures::{
-    Client, CreateChannel, DatabaseId, QueryError, QueryResult, ServerInfo, WhoAmI,
+    Client, ClientInfo, CreateChannel, DatabaseId, ListedClient, QueryError, QueryResult,
+    ServerInfo, WhoAmI,
 };
 use crate::datastructures::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
@@ -125,6 +126,15 @@ impl SocketConn {
         let data = self.write_and_read(payload).await?;
         Self::decode_status_with_result(data)
         //let status = status.ok_or_else(|| anyhow!("Can't find status line."))?;
+    }
+
+    async fn query_one_operation<T: FromQueryString + Sized>(
+        &mut self,
+        payload: &str,
+    ) -> QueryResult<Option<T>> {
+        self.query_operation(payload)
+            .await
+            .map(|r| r.map(|mut v| v.swap_remove(0)))
     }
 
     fn escape(s: &str) -> String {
@@ -315,6 +325,15 @@ impl SocketConn {
 
     pub async fn ban_del(&mut self, ban_id: i64) -> QueryResult<()> {
         self.basic_operation(&format!("bandel banid={}\n\r", ban_id))
+            .await
+    }
+
+    pub async fn query_client_list(&mut self) -> QueryResult<Vec<ListedClient>> {
+        self.query_operation_non_error("clientlist\n\r").await
+    }
+
+    pub async fn query_client_info(&mut self, client_id: i64) -> QueryResult<Option<ClientInfo>> {
+        self.query_one_operation(&format!("clientinfo clid={}\n\r", client_id))
             .await
     }
 }
