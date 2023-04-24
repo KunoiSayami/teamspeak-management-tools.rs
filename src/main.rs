@@ -14,12 +14,14 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 use once_cell::sync::OnceCell;
 use std::hint::unreachable_unchecked;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
 static OBSERVER_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
+
+const DEFAULT_OBSERVER_NICKNAME: &str = "observer";
+const DEFAULT_AUTO_CHANNEL_NICKNAME: &str = "auto channel";
 
 static SYSTEMD_MODE: OnceCell<bool> = OnceCell::new();
 const SYSTEMD_MODE_RETRIES_TIMES: u32 = 3;
@@ -82,8 +84,6 @@ async fn watchdog(
     let (private_message_sender, private_message_receiver) = mpsc::channel(4096);
     let (trigger_sender, trigger_receiver) = mpsc::channel(1024);
     let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
-    let keepalive_signal = Arc::new(Mutex::new(false));
-    let alt_signal = keepalive_signal.clone();
 
     let auto_channel_handler = tokio::spawn(auto_channel_staff(
         conn2,
@@ -99,7 +99,6 @@ async fn watchdog(
         conn1,
         private_message_receiver,
         telegram_sender,
-        alt_signal,
         auto_channel_instance,
         config.clone(),
         output_server_broadcast,
@@ -128,11 +127,13 @@ async fn watchdog(
         } => {
             unsafe { unreachable_unchecked() }
         }
-        _ = async move {
+        _ = async {
             loop {
                 tokio::time::sleep(Duration::from_secs(30)).await;
-                let mut i = keepalive_signal.lock().await;
-                *i = true;
+                private_message_sender.send(PrivateMessageRequest::KeepAlive)
+                    .await
+                    .map_err(|_| error!("Send keep alive command error"))
+                    .ok();
             }
         } => {
             unsafe { unreachable_unchecked() }

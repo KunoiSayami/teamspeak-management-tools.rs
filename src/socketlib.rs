@@ -1,12 +1,11 @@
 use crate::datastructures::{
-    Client, ClientInfo, CreateChannel, DatabaseId, ListedClient, QueryError, QueryResult,
-    ServerInfo, WhoAmI,
+    Client, ClientInfo, CreateChannel, DatabaseId, QueryError, QueryResult, ServerInfo, WhoAmI,
 };
 use crate::datastructures::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
 use log::{error, warn};
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, Interest};
 use tokio::net::TcpStream;
 
 const BUFFER_SIZE: usize = 512;
@@ -31,6 +30,10 @@ impl SocketConn {
             }
         }
         Err(QueryError::static_empty_response())
+    }
+
+    pub async fn wait_readable(&mut self) -> anyhow::Result<bool> {
+        Ok(self.conn.ready(Interest::READABLE).await?.is_readable())
     }
 
     fn decode_status_with_result<T: FromQueryString + Sized>(
@@ -283,6 +286,12 @@ impl SocketConn {
         self.basic_operation(&payload).await
     }
 
+    pub async fn send_keepalive(&mut self) -> QueryResult<()> {
+        self.write_data("whoami\n\rbanlist\n\r")
+            .await
+            .map_err(QueryError::from)
+    }
+
     pub(crate) async fn logout(&mut self) -> QueryResult<()> {
         self.basic_operation("quit\n\r").await
     }
@@ -327,11 +336,6 @@ impl SocketConn {
         self.basic_operation(&format!("bandel banid={}\n\r", ban_id))
             .await
     }
-
-    pub async fn query_client_list(&mut self) -> QueryResult<Vec<ListedClient>> {
-        self.query_operation_non_error("clientlist\n\r").await
-    }
-
     pub async fn query_client_info(&mut self, client_id: i64) -> QueryResult<Option<ClientInfo>> {
         self.query_one_operation(&format!("clientinfo clid={}\n\r", client_id))
             .await

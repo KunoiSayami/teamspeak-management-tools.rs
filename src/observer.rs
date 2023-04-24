@@ -1,12 +1,11 @@
 use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
-use crate::datastructures::config::MutePorter;
 use crate::datastructures::output;
 use crate::datastructures::{
     BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
     NotifyTextMessage,
 };
 use crate::socketlib::SocketConn;
-use crate::{Config, OBSERVER_NICKNAME_OVERRIDE};
+use crate::{Config, DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use futures_util::future::FutureExt;
 use log::{debug, error, info, trace, warn};
@@ -23,6 +22,7 @@ use tokio::sync::{mpsc, Mutex};
 
 pub enum PrivateMessageRequest {
     Message(i64, String),
+    KeepAlive,
     Terminate,
 }
 
@@ -148,7 +148,6 @@ pub async fn telegram_thread(
 #[allow(clippy::too_many_arguments)]
 pub async fn staff(
     line: &str,
-    received: &mut bool,
     ignore_list: &[String],
     monitor_channel: &AutoChannelInstance,
     whitelist_ip: &Vec<String>,
@@ -157,7 +156,6 @@ pub async fn staff(
     current_time: &str,
     conn: &mut SocketConn,
     output_file: Option<Arc<Mutex<File>>>,
-    mute_porter: &MutePorter,
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -306,48 +304,7 @@ pub async fn staff(
         return Ok(());
     }
     if line.contains("virtualserver_status=") {
-        *received = true;
-        if !mute_porter.enable() {
-            return Ok(());
-        }
-        for client in conn
-            .query_client_list()
-            .await
-            .map_err(|e| anyhow!("Unable query clients: {:?}", e))?
-        {
-            if client.is_client_valid()
-                && client.channel_id() == mute_porter.monitor_channel()
-                && !mute_porter.check_whitelist(client.client_database_id())
-            {
-                if let Some(true) = conn
-                    .query_client_info(client.client_id())
-                    .await
-                    .map_err(|e| error!("Unable query client information: {:?}", e))
-                    .ok()
-                    .flatten()
-                    .map(|r| r.is_client_muted())
-                {
-                    conn.move_client_to_channel(client.client_id(), mute_porter.target_channel())
-                        .await
-                        .map_err(|e| {
-                            error!(
-                                "Unable move client {} to channel {}: {:?}",
-                                client.client_id(),
-                                mute_porter.target_channel(),
-                                e
-                            )
-                        })
-                        .map(|_| {
-                            info!(
-                                "Moved {} to {}",
-                                client.client_id(),
-                                mute_porter.target_channel()
-                            )
-                        })
-                        .ok();
-                }
-            }
-        }
+        return Ok(());
     }
     Ok(())
 }
@@ -355,8 +312,7 @@ pub async fn staff(
 pub async fn observer_thread(
     mut conn: SocketConn,
     mut recv: mpsc::Receiver<PrivateMessageRequest>,
-    sender: mpsc::Sender<TelegramData>,
-    notify_signal: Arc<Mutex<bool>>,
+    telegram_sender: mpsc::Sender<TelegramData>,
     monitor_channel: AutoChannelInstance,
     config: Config,
     output_server_broadcast: Option<String>,
@@ -385,16 +341,20 @@ pub async fn observer_thread(
         None
     };
 
-    conn.change_nickname(OBSERVER_NICKNAME_OVERRIDE.get_or_init(|| "observer".to_string()))
-        .await
-        .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
+    conn.change_nickname(
+        OBSERVER_NICKNAME_OVERRIDE.get_or_init(|| DEFAULT_OBSERVER_NICKNAME.to_string()),
+    )
+    .await
+    .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
+
     let mut client_map: HashMap<i64, (String, bool)> = HashMap::new();
+
     for client in conn
         .query_clients()
         .await
         .map_err(|e| anyhow!("QueryClient failure: {:?}", e))?
     {
-        if client_map.get(&client.client_id()).is_some() || client.client_type() == 1 {
+        if client_map.get(&client.client_id()).is_some() || !client.client_is_user() {
             continue;
         }
 
@@ -441,8 +401,6 @@ pub async fn observer_thread(
             .map_err(|e| anyhow!("Register monitor channel error: {:?}", e))?;
     }
 
-    let mut received = true;
-
     if !whitelist_ip.is_empty() {
         conn.write_data("banlist\n\r").await.ok();
     }
@@ -457,22 +415,39 @@ pub async fn observer_thread(
             break;
         }*/
 
-        if let Ok(Some(message)) =
-            tokio::time::timeout(Duration::from_millis(interval), recv.recv()).await
-        {
-            match message {
-                PrivateMessageRequest::Message(client_id, message) => {
-                    conn.send_text_message_unchecked(client_id, &message)
+        tokio::select! {
+            message = tokio::time::timeout(Duration::from_millis(interval), recv.recv()) => {
+                let message = match message {
+                    Ok(Some(ret)) => ret,
+                    _ => continue,
+                };
+                match message {
+                    PrivateMessageRequest::Message(client_id, message) => {
+                        conn.send_text_message_unchecked(client_id, &message)
                         .await
                         .map(|_| trace!("Send message to {}", client_id))
                         .map_err(|e| {
                             anyhow!("Got error while send message to {} {:?}", client_id, e)
                         })?;
+                        continue
+                    }
+                    PrivateMessageRequest::KeepAlive => {
+                        conn.send_keepalive().await
+                            .map_err(|e| {
+                                error!("Got error while write data in keep alive function: {:?}", e)
+                            })
+                            .ok();
+                    }
+                    PrivateMessageRequest::Terminate => {
+                        info!("Exit from staff thread!");
+                        conn.logout().await.ok();
+                        break;
+                    }
                 }
-                PrivateMessageRequest::Terminate => {
-                    info!("Exit from staff thread!");
-                    conn.logout().await.ok();
-                    break;
+            }
+            ret = conn.wait_readable() => {
+                if !ret? {
+                    continue
                 }
             }
         }
@@ -485,21 +460,6 @@ pub async fn observer_thread(
         //trace!("Read data end");
 
         if !matches!(&data, Some(x) if !x.is_empty()) {
-            let mut signal = notify_signal.lock().await;
-            if *signal {
-                if !received {
-                    error!("Not received answer after period of time");
-                    return Err(anyhow!("Server disconnected"));
-                }
-                received = false;
-                conn.write_data("whoami\n\rbanlist\n\r")
-                    .await
-                    .map_err(|e| {
-                        error!("Got error while write data in keep alive function: {:?}", e)
-                    })
-                    .ok();
-                *signal = false;
-            }
             continue;
         }
         let data = data.unwrap();
@@ -513,27 +473,27 @@ pub async fn observer_thread(
 
             staff(
                 line,
-                &mut received,
                 &ignore_list,
                 &monitor_channel,
                 &whitelist_ip,
                 &mut client_map,
-                &sender,
+                &telegram_sender,
                 &current_time,
                 &mut conn,
                 output_file.clone(),
-                config.mute_porter(),
             )
             .await?;
         }
         //trace!("message loop end");
     }
+
     monitor_channel
         .send_terminate()
         .await
         .map_err(|e| error!("{:?}", e))
         .ok();
-    sender
+
+    telegram_sender
         .send(TelegramData::Terminate)
         .await
         .map_err(|_| error!("Got error while send terminate signal"))

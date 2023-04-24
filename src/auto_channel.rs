@@ -1,7 +1,9 @@
+use crate::datastructures::config::MutePorter;
 use crate::datastructures::notifies::ClientBasicInfo;
+use crate::datastructures::QueryResult;
 use crate::observer::PrivateMessageRequest;
 use crate::socketlib::SocketConn;
-use crate::{Config, AUTO_CHANNEL_NICKNAME_OVERRIDE};
+use crate::{Config, AUTO_CHANNEL_NICKNAME_OVERRIDE, DEFAULT_AUTO_CHANNEL_NICKNAME};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;
@@ -72,6 +74,51 @@ impl AutoChannelInstance {
     }
 }
 
+pub async fn mute_porter_function(
+    conn: &mut SocketConn,
+    mute_porter: &MutePorter,
+) -> QueryResult<()> {
+    for client in conn
+        .query_clients()
+        .await
+        .map_err(|e| anyhow!("Unable query clients: {:?}", e))?
+    {
+        if client.client_is_user()
+            && client.channel_id() == mute_porter.monitor_channel()
+            && !mute_porter.check_whitelist(client.client_database_id())
+        {
+            if let Some(true) = conn
+                .query_client_info(client.client_id())
+                .await
+                .map_err(|e| error!("Unable query client information: {:?}", e))
+                .ok()
+                .flatten()
+                .map(|r| r.is_client_muted())
+            {
+                conn.move_client_to_channel(client.client_id(), mute_porter.target_channel())
+                    .await
+                    .map_err(|e| {
+                        error!(
+                            "Unable move client {} to channel {}: {:?}",
+                            client.client_id(),
+                            mute_porter.target_channel(),
+                            e
+                        )
+                    })
+                    .map(|_| {
+                        info!(
+                            "Moved {} to {}",
+                            client.client_id(),
+                            mute_porter.target_channel()
+                        )
+                    })
+                    .ok();
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn auto_channel_staff(
     mut conn: SocketConn,
     mut receiver: mpsc::Receiver<AutoChannelEvent>,
@@ -88,9 +135,11 @@ pub async fn auto_channel_staff(
     let monitor_channels = config.server().channels();
     let privilege_group = config.server().privilege_group_id();
     let channel_permissions = config.channel_permissions();
-    conn.change_nickname(AUTO_CHANNEL_NICKNAME_OVERRIDE.get_or_init(|| "auto channel".to_string()))
-        .await
-        .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
+    conn.change_nickname(
+        AUTO_CHANNEL_NICKNAME_OVERRIDE.get_or_init(|| DEFAULT_AUTO_CHANNEL_NICKNAME.to_string()),
+    )
+    .await
+    .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
 
     let who_am_i = conn
         .who_am_i()
@@ -155,6 +204,9 @@ pub async fn auto_channel_staff(
                         .await
                         .map_err(|e| anyhow!("Got error while doing keep alive {:?}", e))
                         .ok();
+                    if config.mute_porter().enable() {
+                        self::mute_porter_function(&mut conn, config.mute_porter()).await?;
+                    }
                     continue;
                 }
             }

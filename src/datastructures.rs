@@ -88,39 +88,6 @@ pub mod channel {
 }
 */
 
-pub mod client_from_list {
-
-    use super::FromQueryString;
-    use serde_derive::Deserialize;
-
-    #[derive(Clone, Debug, Default, Deserialize)]
-    pub struct Client {
-        #[serde(rename = "cid")]
-        channel_id: i64,
-        #[serde(rename = "clid")]
-        client_id: i64,
-        client_database_id: i64,
-        client_type: i64,
-    }
-
-    impl Client {
-        pub fn channel_id(&self) -> i64 {
-            self.channel_id
-        }
-        pub fn client_id(&self) -> i64 {
-            self.client_id
-        }
-        pub fn client_database_id(&self) -> i64 {
-            self.client_database_id
-        }
-        pub fn is_client_valid(&self) -> bool {
-            self.client_type == 0
-        }
-    }
-
-    impl FromQueryString for Client {}
-}
-
 // TODO: Rename this
 mod client {
     use super::FromQueryString;
@@ -150,13 +117,11 @@ mod client {
         pub fn client_type(&self) -> i64 {
             self.client_type
         }
-        #[allow(unused)]
-        #[deprecated(since = "1.1.1", note = "Should use client_database_id instead")]
-        pub fn client_unique_identifier(&self) -> String {
-            format!("{}", self.client_database_id())
-        }
         pub fn client_nickname(&self) -> &str {
             &self.client_nickname
+        }
+        pub fn client_is_user(&self) -> bool {
+            self.client_type == 0
         }
     }
 
@@ -940,6 +905,7 @@ mod client_info {
         client_output_hardware: bool,
         client_unique_identifier: String,
         client_away: bool,
+        client_idle_time: i64,
     }
 
     impl ClientInfo {
@@ -949,6 +915,7 @@ mod client_info {
                 || self.client_output_muted
                 || !self.client_output_hardware
                 || !self.client_input_hardware
+                || self.client_idle_time / 1000 > 300
         }
 
         pub fn client_unique_identifier(self) -> String {
@@ -959,21 +926,9 @@ mod client_info {
     impl FromQueryString for ClientInfo {}
 }
 
-/*mod staff_parameter {
-
-    #[derive(Debug)]
-    pub struct StaffParameter<'a> {
-        line: &'a str,
-
-    }
-
-}
-*/
-
 pub use ban_entry::BanEntry;
 //pub use channel::Channel;
 pub use client::Client;
-pub use client_from_list::Client as ListedClient;
 pub use client_info::ClientInfo;
 pub use client_query_result::DatabaseId;
 pub use config::Config;
