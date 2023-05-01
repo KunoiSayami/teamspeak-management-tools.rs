@@ -95,7 +95,7 @@ pub async fn mute_porter_function(
                 .flatten()
                 .map(|r| r.is_client_muted())
             {
-                conn.move_client_to_channel(client.client_id(), mute_porter.target_channel())
+                conn.move_client(client.client_id(), mute_porter.target_channel())
                     .await
                     .map_err(|e| {
                         error!(
@@ -205,7 +205,7 @@ pub async fn auto_channel_staff(
                         .map_err(|e| anyhow!("Got error while doing keep alive {:?}", e))
                         .ok();
                     if config.mute_porter().enable() {
-                        self::mute_porter_function(&mut conn, config.mute_porter()).await?;
+                        mute_porter_function(&mut conn, config.mute_porter()).await?;
                     }
                     continue;
                 }
@@ -293,10 +293,7 @@ pub async fn auto_channel_staff(
                 ret.unwrap()
             };
 
-            match conn
-                .move_client_to_channel(client.client_id(), target_channel)
-                .await
-            {
+            match conn.move_client(client.client_id(), target_channel).await {
                 Ok(ret) => ret,
                 Err(e) => {
                     if e.code() == 768 {
@@ -323,7 +320,7 @@ pub async fn auto_channel_staff(
                 .ok();
 
             if create_new {
-                conn.move_client_to_channel(who_am_i.client_id(), client.channel_id())
+                conn.move_client(who_am_i.client_id(), client.channel_id())
                     .await
                     .map_err(|e| anyhow!("Unable move self out of channel. {:?}", e))?;
                 //mapper.insert(client.client_database_id(), target_channel);

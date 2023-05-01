@@ -241,7 +241,7 @@ impl SocketConn {
         self.query_operation_non_error("clientlist\n\r").await
     }
 
-    pub(crate) async fn move_client_to_channel(
+    pub(crate) async fn move_client(
         &mut self,
         client_id: i64,
         target_channel: i64,

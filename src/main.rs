@@ -198,8 +198,8 @@ fn main() -> anyhow::Result<()> {
             arg!([CONFIG_FILE] "Override default configure file location"),
             arg!(--systemd "Start in systemd mode, which enable wait if connect failed"),
             arg!([SERVER_BROADCAST_OUTPUT_FILE] "Enable output server broadcast to file (beta)"),
-            arg!(--observer_name [OBSERVER_NAME] "Override observer nickname"),
-            arg!(--autochannel_name [AUTO_CHANNEL_NAME] "Override auto channel nickname"),
+            arg!(--"observer-name" [OBSERVER_NAME] "Override observer nickname"),
+            arg!(--"autochannel-name" [AUTO_CHANNEL_NAME] "Override auto channel nickname"),
         ])
         .get_matches();
 
@@ -208,13 +208,13 @@ fn main() -> anyhow::Result<()> {
         .filter_module("reqwest", LevelFilter::Warn)
         .init();
 
-    if let Some(nickname) = matches.get_one::<String>("observer_name") {
+    if let Some(nickname) = matches.get_one::<String>("observer-name") {
         OBSERVER_NICKNAME_OVERRIDE
             .set(nickname.to_string())
             .unwrap();
     }
 
-    if let Some(nickname) = matches.get_one::<String>("autochannel_name") {
+    if let Some(nickname) = matches.get_one::<String>("autochannel-name") {
         AUTO_CHANNEL_NICKNAME_OVERRIDE
             .set(nickname.to_string())
             .unwrap();
