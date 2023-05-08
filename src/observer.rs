@@ -434,9 +434,8 @@ pub async fn observer_thread(
                     PrivateMessageRequest::KeepAlive => {
                         conn.send_keepalive().await
                             .map_err(|e| {
-                                error!("Got error while write data in keep alive function: {:?}", e)
-                            })
-                            .ok();
+                                anyhow!("Got error while write data in keep alive function: {:?}", e)
+                            })?;
                     }
                     PrivateMessageRequest::Terminate => {
                         info!("Exit from staff thread!");
