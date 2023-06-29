@@ -134,6 +134,7 @@ mod database {
         use log::error;
         use sqlx::sqlite::SqliteConnectOptions;
         use sqlx::{ConnectOptions, SqliteConnection};
+        use tap::TapFallible;
         use tokio::sync::mpsc;
         use tokio::task::JoinHandle;
 
@@ -184,7 +185,7 @@ mod database {
                                 channel.is_none(),
                             )
                             .await
-                            .map_err(|e| error!("Unable insert to database: {:?}", e))
+                            .tap_err(|e| error!("Unable insert to database: {:?}", e))
                             .ok();
                         }
                         Event::Terminate => {
@@ -201,9 +202,9 @@ mod database {
 
             pub async fn safe_new(
                 filename: Option<String>,
-                error_handler: fn(sqlx::Error) -> (),
+                error_handler: fn(&sqlx::Error) -> (),
             ) -> (Self, EventHelper) {
-                match Self::new(filename).await.map_err(error_handler) {
+                match Self::new(filename).await.tap_err(error_handler) {
                     Ok(ret) => ret,
                     Err(_) => Self::create_empty().await.unwrap(),
                 }

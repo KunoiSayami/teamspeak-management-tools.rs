@@ -17,7 +17,7 @@ use once_cell::sync::OnceCell;
 use std::hint::unreachable_unchecked;
 use std::path::Path;
 use std::time::Duration;
-use tap::TapOptional;
+use tap::{TapFallible, TapOptional};
 use tokio::sync::mpsc;
 
 static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
@@ -146,7 +146,7 @@ async fn watchdog(
                 tokio::time::sleep(Duration::from_secs(30)).await;
                 private_message_sender.send(PrivateMessageRequest::KeepAlive)
                     .await
-                    .map_err(|_| error!("Send keep alive command error"))
+                    .tap_err(|_| error!("Send keep alive command error"))
                     .ok();
             }
         } => {

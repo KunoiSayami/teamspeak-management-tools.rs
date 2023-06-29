@@ -95,7 +95,7 @@ impl SocketConn {
         /*self.conn
         .flush()
         .await
-        .map_err(|e| anyhow!("Got error while flush data: {:?}", e))?;*/
+        .tap_err(|e| anyhow!("Got error while flush data: {:?}", e))?;*/
         Ok(())
     }
 

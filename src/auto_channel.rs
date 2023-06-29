@@ -9,6 +9,7 @@ use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
 use std::time::Duration;
+use tap::TapFallible;
 use tokio::sync::mpsc;
 
 pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
@@ -90,14 +91,14 @@ pub async fn mute_porter_function(
             if let Some(true) = conn
                 .query_client_info(client.client_id())
                 .await
-                .map_err(|e| error!("Unable query client information: {:?}", e))
+                .tap_err(|e| error!("Unable query client information: {:?}", e))
                 .ok()
                 .flatten()
                 .map(|r| r.is_client_muted())
             {
                 conn.move_client(client.client_id(), mute_porter.target_channel())
                     .await
-                    .map_err(|e| {
+                    .tap_err(|e| {
                         error!(
                             "Unable move client {} to channel {}: {:?}",
                             client.client_id(),
@@ -182,7 +183,7 @@ pub async fn auto_channel_staff(
                                 .del::<_, i64>(&key)
                                 .await
                                 .map(|_| trace!("Deleted"))
-                                .map_err(|e| error!("Got error while delete from redis: {:?}", e))
+                                .tap_err(|e| error!("Got error while delete from redis: {:?}", e))
                                 .ok();
                         }
                         private_message_sender
@@ -191,7 +192,7 @@ pub async fn auto_channel_staff(
                                 "Received.".to_string(),
                             ))
                             .await
-                            .map_err(|_| error!("Got error in request send message"))
+                            .tap_err(|_| error!("Got error in request send message"))
                             .ok();
                     }
                 },
@@ -216,7 +217,7 @@ pub async fn auto_channel_staff(
         let clients = match conn
             .query_clients()
             .await
-            .map_err(|e| error!("Got error while query clients: {:?}", e))
+            .tap_err(|e| error!("Got error while query clients: {:?}", e))
         {
             Ok(clients) => clients,
             Err(_) => continue,
@@ -241,7 +242,7 @@ pub async fn auto_channel_staff(
             let target_channel = if create_new {
                 /*conn.send_text_message(client.client_id(), MSG_CHANNEL_NOT_FOUND.get().unwrap())
                 .await
-                .map_err(|e| error!("Got error while send message: {:?}", e))
+                .tap_err(|e| error!("Got error while send message: {:?}", e))
                 .ok();*/
 
                 let mut name = format!("{}'s channel", client.client_nickname());
@@ -261,7 +262,7 @@ pub async fn auto_channel_staff(
 
                     /*conn.send_text_message(client.client_id(), MSG_CREATE_CHANNEL.get().unwrap())
                     .await
-                    .map_err(|e| error!("Got error while send message: {:?}", e))
+                    .tap_err(|e| error!("Got error while send message: {:?}", e))
                     .ok();*/
 
                     break create_channel.unwrap().cid();
@@ -273,18 +274,18 @@ pub async fn auto_channel_staff(
                     privilege_group,
                 )
                 .await
-                .map_err(|e| error!("Got error while set client channel group: {:?}", e))
+                .tap_err(|e| error!("Got error while set client channel group: {:?}", e))
                 .ok();
 
                 conn.add_channel_permission(channel_id, &[(133, 75)])
                     .await
-                    .map_err(|e| error!("Got error while set default channel permissions: {:?}", e))
+                    .tap_err(|e| error!("Got error while set default channel permissions: {:?}", e))
                     .ok();
 
                 if let Some(permissions) = channel_permissions.get(&client.channel_id()) {
                     conn.add_channel_permission(channel_id, permissions)
                         .await
-                        .map_err(|e| error!("Got error while set channel permissions: {:?}", e))
+                        .tap_err(|e| error!("Got error while set channel permissions: {:?}", e))
                         .ok();
                 }
 
@@ -308,7 +309,7 @@ pub async fn auto_channel_staff(
 
             /*conn.send_text_message(client.client_id(), MSG_MOVE_TO_CHANNEL.get().unwrap())
             .await
-            .map_err(|e| error!("Got error while send message: {:?}", e))
+            .tap_err(|e| error!("Got error while send message: {:?}", e))
             .ok();*/
             private_message_sender
                 .send(PrivateMessageRequest::Message(
@@ -316,7 +317,7 @@ pub async fn auto_channel_staff(
                     MSG_MOVE_TO_CHANNEL.get().unwrap().clone(),
                 ))
                 .await
-                .map_err(|_| warn!("Send message request fail"))
+                .tap_err(|_| warn!("Send message request fail"))
                 .ok();
 
             if create_new {

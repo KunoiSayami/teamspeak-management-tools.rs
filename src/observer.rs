@@ -15,7 +15,7 @@ use std::fmt::Formatter;
 use std::hint::unreachable_unchecked;
 use std::sync::Arc;
 use std::time::Duration;
-use tap::TapOptional;
+use tap::{TapFallible, TapOptional};
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 use tokio::fs::File;
@@ -188,7 +188,7 @@ pub async fn staff(
                     view.clone()
                 ))
                 .map(|result| result
-                    .map_err(|_| error!("Got error while send data to telegram"))
+                    .tap_err(|_| error!("Got error while send data to telegram"))
                     .ok()),
             async {
                 if let Some(file) = output_file {
@@ -203,7 +203,7 @@ pub async fn staff(
                         .as_bytes(),
                     )
                     .await
-                    .map_err(|e| error!("Can't write output to file: {:?}", e))
+                    .tap_err(|e| error!("Can't write output to file: {:?}", e))
                     .ok();
                 }
             },
@@ -240,7 +240,7 @@ pub async fn staff(
                 nickname.0.clone(),
             ))
             .await
-            .map_err(|_| error!("Got error while send data to telegram"))
+            .tap_err(|_| error!("Got error while send data to telegram"))
             .ok();
         tracker_controller
             .insert(view.client_id() as i32, None, None)
@@ -284,7 +284,7 @@ pub async fn staff(
                 .as_bytes(),
             )
             .await
-            .map_err(|e| error!("Can't write output to file: {:?}", e))
+            .tap_err(|e| error!("Can't write output to file: {:?}", e))
             .ok();
         }
         return Ok(());
@@ -404,7 +404,7 @@ pub async fn observer_thread(
                 .as_bytes(),
             )
             .await
-            .map_err(|e| error!("Can't write output to file: {:?}", e))
+            .tap_err(|e| error!("Can't write output to file: {:?}", e))
             .ok();
         }
 
@@ -434,7 +434,7 @@ pub async fn observer_thread(
     loop {
         /*if recv
             .has_changed()
-            .map_err(|e| anyhow!("Got error in check watcher {:?}", e))?
+            .tap_err(|e| anyhow!("Got error in check watcher {:?}", e))?
         {
             info!("Exit from staff thread!");
             conn.logout().await.ok();
@@ -516,13 +516,13 @@ pub async fn observer_thread(
     monitor_channel
         .send_terminate()
         .await
-        .map_err(|e| error!("{:?}", e))
+        .tap_err(|e| error!("{:?}", e))
         .ok();
 
     telegram_sender
         .send(TelegramData::Terminate)
         .await
-        .map_err(|_| error!("Got error while send terminate signal"))
+        .tap_err(|_| error!("Got error while send terminate signal"))
         .ok();
     Ok(())
 }
