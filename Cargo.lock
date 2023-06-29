@@ -1705,7 +1705,9 @@ dependencies = [
 
 [[package]]
 name = "serde-teamspeak-querystring"
-version = "0.1.2"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3624b36d7bb0c76cbf73ad5fb8b4fd98137bd9a8d5c20b5ca69d603cf5fb9a76"
 dependencies = [
  "lexical",
  "serde",
