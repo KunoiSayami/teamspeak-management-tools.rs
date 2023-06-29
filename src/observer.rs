@@ -5,6 +5,7 @@ use crate::datastructures::{
     NotifyTextMessage,
 };
 use crate::socketlib::SocketConn;
+use crate::tracker::DatabaseEventHelper;
 use crate::{Config, DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use futures_util::future::FutureExt;
@@ -14,6 +15,7 @@ use std::fmt::Formatter;
 use std::hint::unreachable_unchecked;
 use std::sync::Arc;
 use std::time::Duration;
+use tap::TapOptional;
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 use tokio::fs::File;
@@ -156,6 +158,7 @@ pub async fn staff(
     current_time: &str,
     conn: &mut SocketConn,
     output_file: Option<Arc<Mutex<File>>>,
+    tracker_controller: &DatabaseEventHelper,
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -203,6 +206,16 @@ pub async fn staff(
                     .map_err(|e| error!("Can't write output to file: {:?}", e))
                     .ok();
                 }
+            },
+            async {
+                tracker_controller
+                    .insert(
+                        view.client_id() as i32,
+                        Some(view.client_unique_identifier().to_string()),
+                        Some(view.channel_id() as i32),
+                    )
+                    .await
+                    .tap_none(|| warn!("Unable send message to tracker"))
             }
         )
         .0?;
@@ -229,6 +242,10 @@ pub async fn staff(
             .await
             .map_err(|_| error!("Got error while send data to telegram"))
             .ok();
+        tracker_controller
+            .insert(view.client_id() as i32, None, None)
+            .await
+            .tap_none(|| warn!("Unable send message to tracker"));
         client_map.remove(&view.client_id());
         return Ok(());
     }
@@ -243,6 +260,14 @@ pub async fn staff(
                     trace!("Notify auto channel thread")
                 }
             })?;
+        tracker_controller
+            .insert(
+                view.client_id() as i32,
+                Some(view.invoker_uid().to_string()),
+                Some(view.channel_id() as i32),
+            )
+            .await
+            .tap_none(|| warn!("Unable send message to tracker"));
         if let Some(file) = output_file {
             let mut file = file.lock().await;
             file.write(
@@ -316,6 +341,7 @@ pub async fn observer_thread(
     monitor_channel: AutoChannelInstance,
     config: Config,
     output_server_broadcast: Option<String>,
+    tracker_controller: DatabaseEventHelper,
 ) -> anyhow::Result<()> {
     let interval = config.misc().interval();
     let whitelist_ip = config.server().whitelist_ip();
@@ -480,6 +506,7 @@ pub async fn observer_thread(
                 &current_time,
                 &mut conn,
                 output_file.clone(),
+                &tracker_controller,
             )
             .await?;
         }

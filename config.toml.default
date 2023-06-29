@@ -3,6 +3,7 @@
 channel_id = [1, 2]
 privilege_group_id = 5
 # redis_server = ""
+# track_channel_member = ""
 
 # [mute_porter]
 # enable = false

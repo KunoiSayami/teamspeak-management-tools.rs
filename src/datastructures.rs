@@ -609,6 +609,7 @@ pub mod config {
         redis_server: Option<String>,
         ignore_user: Option<Vec<String>>,
         whitelist_ip: Option<Vec<String>>,
+        track_channel_member: Option<String>,
     }
 
     impl Server {
@@ -633,6 +634,9 @@ pub mod config {
         }
         pub fn whitelist_ip(&self) -> Vec<String> {
             self.whitelist_ip.clone().unwrap_or_default()
+        }
+        pub fn track_channel_member(&self) -> &Option<String> {
+            &self.track_channel_member
         }
     }
 
