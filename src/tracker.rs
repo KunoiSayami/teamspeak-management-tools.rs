@@ -14,10 +14,10 @@ mod database {
             "leave"	INTEGER NOT NULL
         );
         
-        CREATE TABLE "meta" {
+        CREATE TABLE "meta" (
             "key" TEXT NOT NULL,
             "value" TEXT
-        };
+        );
         "#;
 
         pub(super) async fn insert(
@@ -74,6 +74,8 @@ mod database {
     }
 
     pub mod types {
+        use crate::datastructures::EventHelperTrait;
+        use async_trait::async_trait;
         use tokio::sync::mpsc;
 
         #[derive(Clone, Debug)]
@@ -94,8 +96,11 @@ mod database {
                 }
                 Some(())
             }
+        }
 
-            pub async fn insert(
+        #[async_trait]
+        impl EventHelperTrait for EventHelper {
+            async fn insert(
                 &self,
                 client_id: i32,
                 user_id: Option<String>,
@@ -104,7 +109,7 @@ mod database {
                 self.send(Event::Insert(client_id, user_id, channel)).await
             }
 
-            pub async fn terminate(&self) -> Option<()> {
+            async fn terminate(&self) -> Option<()> {
                 self.send(Event::Terminate).await
             }
         }
@@ -158,8 +163,8 @@ mod database {
                     .connect()
                     .await?;
                 if !check_database(&mut conn).await? {
-                    insert_database_version(&mut conn).await?;
                     create_new_database(&mut conn).await?;
+                    insert_database_version(&mut conn).await?;
                 }
 
                 let (sender, receiver) = mpsc::channel(2048);

@@ -609,6 +609,7 @@ pub mod config {
         redis_server: Option<String>,
         ignore_user: Option<Vec<String>>,
         whitelist_ip: Option<Vec<String>>,
+        #[cfg(feature = "tracker")]
         track_channel_member: Option<String>,
     }
 
@@ -635,6 +636,7 @@ pub mod config {
         pub fn whitelist_ip(&self) -> Vec<String> {
             self.whitelist_ip.clone().unwrap_or_default()
         }
+        #[cfg(feature = "tracker")]
         pub fn track_channel_member(&self) -> &Option<String> {
             &self.track_channel_member
         }
@@ -930,6 +932,49 @@ mod client_info {
     impl FromQueryString for ClientInfo {}
 }
 
+mod pseudo_event_helper {
+    use async_trait::async_trait;
+
+    #[async_trait]
+    pub trait EventHelperTrait {
+        async fn insert(
+            &self,
+            client_id: i32,
+            user_id: Option<String>,
+            channel: Option<i32>,
+        ) -> Option<()>;
+        async fn terminate(&self) -> Option<()>;
+    }
+
+    #[cfg(not(feature = "tracker"))]
+    #[derive(Clone, Debug)]
+    pub struct PseudoEventHelper {}
+
+    #[cfg(not(feature = "tracker"))]
+    impl PseudoEventHelper {
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
+
+    #[cfg(not(feature = "tracker"))]
+    #[async_trait]
+    impl EventHelperTrait for PseudoEventHelper {
+        async fn insert(
+            &self,
+            _client_id: i32,
+            _user_id: Option<String>,
+            _channel: Option<i32>,
+        ) -> Option<()> {
+            Some(())
+        }
+
+        async fn terminate(&self) -> Option<()> {
+            Some(())
+        }
+    }
+}
+
 pub use ban_entry::BanEntry;
 //pub use channel::Channel;
 pub use client::Client;
@@ -940,6 +985,10 @@ pub use create_channel::CreateChannel;
 pub use notifies::{
     NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView, NotifyTextMessage,
 };
+pub use pseudo_event_helper::EventHelperTrait;
+
+#[cfg(not(feature = "tracker"))]
+pub use pseudo_event_helper::PseudoEventHelper;
 pub use query_status::{QueryStatus, WebQueryStatus};
 use serde::Deserialize;
 pub use server_broadcast_output as output;

@@ -2,12 +2,18 @@ mod auto_channel;
 mod datastructures;
 mod observer;
 mod socketlib;
+#[cfg(feature = "tracker")]
 mod tracker;
 
 use crate::auto_channel::{auto_channel_staff, AutoChannelInstance, MSG_MOVE_TO_CHANNEL};
 use crate::datastructures::Config;
+#[cfg(feature = "tracker")]
+use crate::datastructures::EventHelperTrait;
+#[cfg(not(feature = "tracker"))]
+use crate::datastructures::PseudoEventHelper;
 use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
 use crate::socketlib::SocketConn;
+#[cfg(feature = "tracker")]
 use crate::tracker::DatabaseHelper;
 use anyhow::anyhow;
 use clap::{arg, command};
@@ -17,7 +23,9 @@ use once_cell::sync::OnceCell;
 use std::hint::unreachable_unchecked;
 use std::path::Path;
 use std::time::Duration;
-use tap::{TapFallible, TapOptional};
+use tap::TapFallible;
+#[cfg(feature = "tracker")]
+use tap::TapOptional;
 use tokio::sync::mpsc;
 
 static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
@@ -88,11 +96,15 @@ async fn watchdog(
     let (trigger_sender, trigger_receiver) = mpsc::channel(1024);
     let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
 
+    #[cfg(feature = "tracker")]
     let (user_tracker, tracker_controller) =
         DatabaseHelper::safe_new(config.server().track_channel_member().clone(), |e| {
             error!("Unable to create tracker {:?}", e)
         })
         .await;
+
+    #[cfg(not(feature = "tracker"))]
+    let tracker_controller = PseudoEventHelper::new();
 
     let auto_channel_handler = tokio::spawn(auto_channel_staff(
         conn2,
@@ -111,7 +123,7 @@ async fn watchdog(
         auto_channel_instance,
         config.clone(),
         output_server_broadcast,
-        tracker_controller.clone(),
+        Box::new(tracker_controller.clone()),
     ));
 
     let telegram_handler = tokio::spawn(telegram_thread(
@@ -130,6 +142,7 @@ async fn watchdog(
                 .map_err(|_| error!("Send terminate error"))
                 .await
                 .ok();
+            #[cfg(feature = "tracker")]
             tracker_controller
                 .terminate()
                 .await
@@ -183,6 +196,7 @@ async fn watchdog(
         }
     }
 
+    #[cfg(feature = "tracker")]
     tokio::select! {
         _ = async {
             tokio::signal::ctrl_c().await.unwrap();

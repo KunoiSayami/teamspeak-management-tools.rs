@@ -1,11 +1,10 @@
 use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
-use crate::datastructures::output;
+use crate::datastructures::{output, EventHelperTrait};
 use crate::datastructures::{
     BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
     NotifyTextMessage,
 };
 use crate::socketlib::SocketConn;
-use crate::tracker::DatabaseEventHelper;
 use crate::{Config, DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use futures_util::future::FutureExt;
@@ -158,7 +157,7 @@ pub async fn staff(
     current_time: &str,
     conn: &mut SocketConn,
     output_file: Option<Arc<Mutex<File>>>,
-    tracker_controller: &DatabaseEventHelper,
+    tracker_controller: &Box<dyn EventHelperTrait + Send + Sync>,
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -208,6 +207,7 @@ pub async fn staff(
                 }
             },
             async {
+                #[cfg(feature = "tracker")]
                 tracker_controller
                     .insert(
                         view.client_id() as i32,
@@ -260,6 +260,7 @@ pub async fn staff(
                     trace!("Notify auto channel thread")
                 }
             })?;
+        #[cfg(feature = "tracker")]
         tracker_controller
             .insert(
                 view.client_id() as i32,
@@ -341,7 +342,7 @@ pub async fn observer_thread(
     monitor_channel: AutoChannelInstance,
     config: Config,
     output_server_broadcast: Option<String>,
-    tracker_controller: DatabaseEventHelper,
+    tracker_controller: Box<dyn EventHelperTrait + Send + Sync>,
 ) -> anyhow::Result<()> {
     let interval = config.misc().interval();
     let whitelist_ip = config.server().whitelist_ip();
