@@ -212,6 +212,7 @@ pub async fn staff(
                     .insert(
                         view.client_id() as i32,
                         Some(view.client_unique_identifier().to_string()),
+                        Some(view.client_nickname().to_string()),
                         Some(view.channel_id() as i32),
                     )
                     .await
@@ -243,7 +244,12 @@ pub async fn staff(
             .tap_err(|_| error!("Got error while send data to telegram"))
             .ok();
         tracker_controller
-            .insert(view.client_id() as i32, None, None)
+            .insert(
+                view.client_id() as i32,
+                None,
+                Some(nickname.0.clone()),
+                None,
+            )
             .await
             .tap_none(|| warn!("Unable send message to tracker"));
         client_map.remove(&view.client_id());
@@ -265,6 +271,7 @@ pub async fn staff(
             .insert(
                 view.client_id() as i32,
                 Some(view.invoker_uid().to_string()),
+                Some(view.invoker_name().to_string()),
                 Some(view.channel_id() as i32),
             )
             .await
@@ -413,6 +420,15 @@ pub async fn observer_thread(
             client.client_id(),
             (client.client_nickname().to_string(), false),
         );
+        tracker_controller
+            .insert(
+                client.client_id() as i32,
+                Some(format!("{}", client.client_database_id())),
+                Some(client.client_nickname().to_string()),
+                Some(client.channel_id() as i32),
+            )
+            .await
+            .tap_none(|| warn!("Unable send insert request"));
     }
 
     let output_file = output_file.map(|f| Arc::new(Mutex::new(f)));

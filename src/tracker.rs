@@ -10,8 +10,8 @@ mod database {
             "timestamp"	INTEGER NOT NULL,
             "client_id" INTEGER NOT NULL,
             "id"	TEXT,
-            "channel"	INTEGER,
-            "leave"	INTEGER NOT NULL
+            "nickname" TEXT,
+            "channel"	INTEGER
         );
         
         CREATE TABLE "meta" (
@@ -24,15 +24,15 @@ mod database {
             conn: &mut SqliteConnection,
             client_id: i32,
             user_id: Option<String>,
+            nickname: Option<String>,
             channel: Option<i32>,
-            is_leave: bool,
         ) -> DatabaseResult<()> {
             sqlx::query(r#"INSERT INTO "users" VALUES (?, ?, ?, ?, ?)"#)
                 .bind(kstool::time::get_current_duration().as_secs() as i32)
                 .bind(client_id)
                 .bind(user_id)
+                .bind(nickname)
                 .bind(channel)
-                .bind(i32::from(is_leave))
                 .execute(conn)
                 .await
                 .map(|_| ())
@@ -80,7 +80,7 @@ mod database {
 
         #[derive(Clone, Debug)]
         pub enum Event {
-            Insert(i32, Option<String>, Option<i32>),
+            Insert(i32, Option<String>, Option<String>, Option<i32>),
             Terminate,
         }
 
@@ -104,9 +104,11 @@ mod database {
                 &self,
                 client_id: i32,
                 user_id: Option<String>,
+                nickname: Option<String>,
                 channel: Option<i32>,
             ) -> Option<()> {
-                self.send(Event::Insert(client_id, user_id, channel)).await
+                self.send(Event::Insert(client_id, user_id, nickname, channel))
+                    .await
             }
 
             async fn terminate(&self) -> Option<()> {
@@ -181,13 +183,9 @@ mod database {
             ) -> anyhow::Result<()> {
                 while let Some(event) = receiver.recv().await {
                     match event {
-                        Event::Insert(client_id, user_id, channel) => {
+                        Event::Insert(client_id, user_id, nickname, channel) => {
                             super::current::insert(
-                                &mut conn,
-                                client_id,
-                                user_id,
-                                channel,
-                                channel.is_none(),
+                                &mut conn, client_id, user_id, nickname, channel,
                             )
                             .await
                             .tap_err(|e| error!("Unable insert to database: {:?}", e))

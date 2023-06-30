@@ -195,8 +195,9 @@ pub mod notifies {
         invoker_id: i64,*/
         #[serde(rename = "invokeruid", default)]
         invoker_uid: String,
-        /*#[serde(rename = "invokername", default)]
-        invoker_name: String,*/
+        #[cfg(feature = "tracker")]
+        #[serde(rename = "invokername", default)]
+        invoker_name: String,
         #[serde(rename = "clid", default)]
         client_id: i64,
     }
@@ -214,9 +215,10 @@ pub mod notifies {
         pub fn invoker_uid(&self) -> &str {
             &self.invoker_uid
         }
-        /*pub fn invoker_name(&self) -> &str {
+        #[cfg(feature = "tracker")]
+        pub fn invoker_name(&self) -> &str {
             &self.invoker_name
-        }*/
+        }
         pub fn client_id(&self) -> i64 {
             self.client_id
         }
@@ -941,6 +943,7 @@ mod pseudo_event_helper {
             &self,
             client_id: i32,
             user_id: Option<String>,
+            nickname: Option<String>,
             channel: Option<i32>,
         ) -> Option<()>;
         async fn terminate(&self) -> Option<()>;
@@ -964,6 +967,7 @@ mod pseudo_event_helper {
             &self,
             _client_id: i32,
             _user_id: Option<String>,
+            _nickname: Option<String>,
             _channel: Option<i32>,
         ) -> Option<()> {
             Some(())
