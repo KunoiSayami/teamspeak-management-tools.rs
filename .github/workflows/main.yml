@@ -45,7 +45,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --profile release
+          args: --profile release --features all
 
       - name: Rename binary
         id: rename
@@ -96,7 +96,7 @@ jobs:
         with:
           use-cross: true
           command: build
-          args: --target aarch64-unknown-linux-musl --profile release
+          args: --target aarch64-unknown-linux-musl --profile release --features all
       - run: mv target/aarch64-unknown-linux-musl/release/teamspeak-management-tools target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
       - uses: actions/upload-artifact@v2
         with:

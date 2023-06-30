@@ -32,4 +32,5 @@ panic = "abort"
 
 [features]
 default = []
+all = ["tracker"]
 tracker = ["sqlx"]
