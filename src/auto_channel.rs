@@ -240,11 +240,6 @@ pub async fn auto_channel_staff(
             let ret: Option<i64> = redis_conn.get(&key).await?;
             let create_new = ret.is_none();
             let target_channel = if create_new {
-                /*conn.send_text_message(client.client_id(), MSG_CHANNEL_NOT_FOUND.get().unwrap())
-                .await
-                .tap_err(|e| error!("Got error while send message: {:?}", e))
-                .ok();*/
-
                 let mut name = format!("{}'s channel", client.client_nickname());
                 let channel_id = loop {
                     let create_channel = match conn.create_channel(&name, client.channel_id()).await
@@ -259,11 +254,6 @@ pub async fn auto_channel_staff(
                             continue 'outer;
                         }
                     };
-
-                    /*conn.send_text_message(client.client_id(), MSG_CREATE_CHANNEL.get().unwrap())
-                    .await
-                    .tap_err(|e| error!("Got error while send message: {:?}", e))
-                    .ok();*/
 
                     break create_channel.unwrap().cid();
                 };
@@ -307,10 +297,6 @@ pub async fn auto_channel_staff(
                 }
             };
 
-            /*conn.send_text_message(client.client_id(), MSG_MOVE_TO_CHANNEL.get().unwrap())
-            .await
-            .tap_err(|e| error!("Got error while send message: {:?}", e))
-            .ok();*/
             private_message_sender
                 .send(PrivateMessageRequest::Message(
                     client.client_id(),
@@ -324,7 +310,6 @@ pub async fn auto_channel_staff(
                 conn.move_client(who_am_i.client_id(), client.channel_id())
                     .await
                     .map_err(|e| anyhow!("Unable move self out of channel. {:?}", e))?;
-                //mapper.insert(client.client_database_id(), target_channel);
                 redis_conn.set(&key, target_channel).await?;
             }
 

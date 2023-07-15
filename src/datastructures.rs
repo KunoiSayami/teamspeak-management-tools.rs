@@ -48,7 +48,7 @@ pub mod create_channel {
     impl FromQueryString for CreateChannel {}
 }
 /*
-pub mod channel {
+pub mod.rs channel {
     use super::FromQueryString;
     use serde_derive::Deserialize;
 
@@ -510,9 +510,8 @@ pub mod ban_entry {
 
     #[cfg(test)]
     mod test {
-        use crate::datastructures::ban_entry::BanEntry;
-        use crate::datastructures::client::Client;
-        use crate::datastructures::FromQueryString;
+        use super::BanEntry;
+        use super::FromQueryString;
 
         const TEST_STRING: &str = r#"banid=5 ip name uid=953jm1Ez3CvbAx7FKzb19zAQm48= mytsid 
         lastnickname=باب created=1541834015 duration=0 invokername=AdminUser invokercldbid=2 
@@ -646,22 +645,10 @@ pub mod config {
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Message {
-        //channel_not_found: Option<String>,
-        //create_channel: Option<String>,
         move_to_channel: Option<String>,
     }
 
     impl Message {
-        /*pub fn channel_not_found(&self) -> String {
-            self.channel_not_found
-                .clone()
-                .unwrap_or_else(|| "I can't find you channel.".to_string())
-        }
-        pub fn create_channel(&self) -> String {
-            self.create_channel
-                .clone()
-                .unwrap_or_else(|| "Your Channel has been created!".to_string())
-        }*/
         pub fn move_to_channel(&self) -> String {
             self.move_to_channel
                 .clone()

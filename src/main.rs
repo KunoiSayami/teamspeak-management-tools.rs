@@ -1,9 +1,8 @@
 mod auto_channel;
 mod datastructures;
 mod observer;
+mod plugins;
 mod socketlib;
-#[cfg(feature = "tracker")]
-mod tracker;
 
 use crate::auto_channel::{auto_channel_staff, AutoChannelInstance, MSG_MOVE_TO_CHANNEL};
 use crate::datastructures::Config;
@@ -12,9 +11,9 @@ use crate::datastructures::EventHelperTrait;
 #[cfg(not(feature = "tracker"))]
 use crate::datastructures::PseudoEventHelper;
 use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
-use crate::socketlib::SocketConn;
 #[cfg(feature = "tracker")]
-use crate::tracker::DatabaseHelper;
+use crate::plugins::tracker::DatabaseHelper;
+use crate::socketlib::SocketConn;
 use anyhow::anyhow;
 use clap::{arg, command};
 use futures_util::TryFutureExt;
