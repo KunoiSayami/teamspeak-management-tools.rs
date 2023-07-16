@@ -11,6 +11,8 @@ use crate::datastructures::EventHelperTrait;
 #[cfg(not(feature = "tracker"))]
 use crate::datastructures::PseudoEventHelper;
 use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
+#[cfg(feature = "totp")]
+use crate::plugins::totp::{show_totp_code, verify_totp_code};
 #[cfg(feature = "tracker")]
 use crate::plugins::tracker::DatabaseHelper;
 use crate::socketlib::SocketConn;
@@ -232,21 +234,49 @@ async fn configure_file_bootstrap<P: AsRef<Path>>(
     .await
 }
 
+fn build_logger(count: u8) {
+    let mut builder = env_logger::Builder::from_default_env();
+    if count < 1 {
+        builder.filter_module("sqlx", LevelFilter::Warn);
+    }
+    if count < 2 {
+        builder
+            .filter_module("h2", LevelFilter::Warn)
+            .filter_module("hyper", LevelFilter::Warn);
+    }
+    if count < 3 {
+        builder
+            .filter_module("rustls", LevelFilter::Warn)
+            .filter_module("reqwest", LevelFilter::Warn);
+    }
+    builder.init();
+}
+
 fn main() -> anyhow::Result<()> {
     let matches = command!()
         .args(&[
-            arg!([CONFIG_FILE] "Override default configure file location"),
+            arg!([CONFIG_FILE] "Override default configure file location")
+                .default_value("config.toml"),
             arg!(--systemd "Start in systemd mode, which enable wait if connect failed"),
             arg!([SERVER_BROADCAST_OUTPUT_FILE] "Enable output server broadcast to file (beta)"),
             arg!(--"observer-name" [OBSERVER_NAME] "Override observer nickname"),
             arg!(--"autochannel-name" [AUTO_CHANNEL_NAME] "Override auto channel nickname"),
+            arg!(-d --debug ... "Enable debug mode (can specify more times)"),
         ])
+        .subcommand(
+            clap::Command::new("totp")
+                .about("totp rated subcommand")
+                .subcommands(&[
+                    clap::Command::new("show"),
+                    clap::Command::new("new"),
+                    clap::Command::new("test")
+                        .arg(arg!(<CODE> "Enter code to test, otherwise show current code")),
+                ])
+                .subcommand_required(true),
+        )
         .get_matches();
 
-    env_logger::Builder::from_default_env()
-        .filter_module("rustls", LevelFilter::Warn)
-        .filter_module("reqwest", LevelFilter::Warn)
-        .init();
+    build_logger(*matches.get_one::<u8>("debug").unwrap_or(&0));
 
     if let Some(nickname) = matches.get_one::<String>("observer-name") {
         OBSERVER_NICKNAME_OVERRIDE
@@ -259,21 +289,45 @@ fn main() -> anyhow::Result<()> {
             .set(nickname.to_string())
             .unwrap();
     }
+    let configure_path: String = matches.get_one::<String>("CONFIG_FILE").cloned().unwrap();
 
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(configure_file_bootstrap(
-            matches
-                .get_one("CONFIG_FILE")
-                .cloned()
-                .unwrap_or_else(|| "config.toml".to_string()),
-            matches.get_flag("systemd"),
-            matches
-                .get_one("SERVER_BROADCAST_OUTPUT_FILE")
-                .map(|s: &String| s.to_string()),
-        ))?;
+    match matches.subcommand() {
+        #[cfg(feature = "totp")]
+        Some(("totp", matches)) => match matches.subcommand() {
+            Some(("new", _)) => {
+                plugins::totp::current::generate_new_totp();
+            }
+            Some(("test", matches)) => {
+                let config = Config::try_from(configure_path.as_ref())?;
+                if let Some(code) = matches.get_one::<String>("CODE") {
+                    verify_totp_code(config, code)?;
+                } else {
+                    show_totp_code(config)?;
+                };
+            }
+            _ => {
+                unreachable!()
+            }
+        },
+        #[cfg(not(feature = "totp"))]
+        Some(("totp", _)) => {
+            eprintln!("To use this subcommand, rebuild your command with totp feature");
+            std::process::exit(1);
+        }
+        _ => {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(configure_file_bootstrap(
+                    configure_path,
+                    matches.get_flag("systemd"),
+                    matches
+                        .get_one("SERVER_BROADCAST_OUTPUT_FILE")
+                        .map(|s: &String| s.to_string()),
+                ))?;
+        }
+    }
 
     Ok(())
 }

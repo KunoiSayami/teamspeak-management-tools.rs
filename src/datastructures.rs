@@ -612,6 +612,8 @@ pub mod config {
         whitelist_ip: Option<Vec<String>>,
         #[cfg(feature = "tracker")]
         track_channel_member: Option<String>,
+        #[cfg(feature = "totp")]
+        totp: Option<String>,
     }
 
     impl Server {
@@ -640,6 +642,14 @@ pub mod config {
         #[cfg(feature = "tracker")]
         pub fn track_channel_member(&self) -> &Option<String> {
             &self.track_channel_member
+        }
+        #[cfg(feature = "totp")]
+        pub fn totp(&self) -> &Option<String> {
+            &self.totp
+        }
+        #[cfg(not(feature = "totp"))]
+        pub fn totp(&self) -> &Option<String> {
+            &None
         }
     }
 

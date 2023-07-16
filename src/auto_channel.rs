@@ -9,13 +9,15 @@ use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
 use std::time::Duration;
-use tap::TapFallible;
+use tap::{Tap, TapFallible};
 use tokio::sync::mpsc;
 
 pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
 
 pub enum AutoChannelEvent {
     Update(ClientBasicInfo),
+    #[cfg(feature = "totp")]
+    ReMap(i64, i64),
     DeleteChannel(i64, String),
     Terminate,
 }
@@ -38,7 +40,7 @@ impl AutoChannelInstance {
     }
 
     // TODO: Optimize
-    pub async fn send_signal(&self, signal: AutoChannelEvent) -> anyhow::Result<bool> {
+    async fn send_signal(&self, signal: AutoChannelEvent) -> anyhow::Result<bool> {
         match self.sender {
             Some(ref sender) => sender
                 .send(signal)
@@ -47,6 +49,11 @@ impl AutoChannelInstance {
                 .map(|_| true),
             _ => Ok(false),
         }
+    }
+
+    pub async fn send_delete(&self, user_id: i64, uid: String) -> anyhow::Result<bool> {
+        self.send_signal(AutoChannelEvent::DeleteChannel(user_id, uid))
+            .await
     }
 
     pub async fn send(&self, view: ClientBasicInfo) -> anyhow::Result<bool> {
@@ -59,9 +66,11 @@ impl AutoChannelInstance {
         self.send_signal(AutoChannelEvent::Update(view)).await
     }
 
-    /*pub fn new_none() -> Self {
-        Self::new(vec![], None)
-    }*/
+    #[cfg(feature = "totp")]
+    pub async fn send_remap(&self, user_id: i64, channel_id: i64) -> anyhow::Result<bool> {
+        self.send_signal(AutoChannelEvent::ReMap(user_id, channel_id))
+            .await
+    }
 
     pub fn new(channel_ids: Vec<i64>, sender: Option<mpsc::Sender<AutoChannelEvent>>) -> Self {
         Self {
@@ -120,6 +129,15 @@ pub async fn mute_porter_function(
     Ok(())
 }
 
+fn build_redis_key(client_database_id: i64, server_id: &str, channel_id: i64) -> String {
+    format!(
+        "ts_autochannel_{}_{server_id}_{pid}",
+        client_database_id,
+        server_id = server_id,
+        pid = channel_id
+    )
+}
+
 pub async fn auto_channel_staff(
     mut conn: SocketConn,
     mut receiver: mpsc::Receiver<AutoChannelEvent>,
@@ -173,16 +191,16 @@ pub async fn auto_channel_staff(
                             .await
                             .map_err(|e| anyhow!("Got error while query {} {:?}", uid, e))?;
                         for channel_id in &monitor_channels {
-                            let key = format!(
-                                "ts_autochannel_{}_{server_id}_{pid}",
+                            let key = build_redis_key(
                                 result.client_database_id(),
-                                server_id = server_info.virtual_server_unique_identifier(),
-                                pid = channel_id
+                                server_info.virtual_server_unique_identifier(),
+                                *channel_id,
                             );
+
                             redis_conn
                                 .del::<_, i64>(&key)
                                 .await
-                                .map(|_| trace!("Deleted"))
+                                .tap(|_| trace!("Deleted"))
                                 .tap_err(|e| error!("Got error while delete from redis: {:?}", e))
                                 .ok();
                         }
@@ -194,6 +212,21 @@ pub async fn auto_channel_staff(
                             .await
                             .tap_err(|_| error!("Got error in request send message"))
                             .ok();
+                    }
+                    #[cfg(feature = "totp")]
+                    AutoChannelEvent::ReMap(user_id, channel_id) => {
+                        for monitor_channel_id in &monitor_channels {
+                            let key = build_redis_key(
+                                user_id,
+                                server_info.virtual_server_unique_identifier(),
+                                *monitor_channel_id,
+                            );
+                            redis_conn
+                                .set::<_, _, i64>(&key, channel_id)
+                                .await
+                                .tap_err(|e| error!("Unable set redis key {:?}: {:?}", key, e))
+                                .ok();
+                        }
                     }
                 },
                 Ok(None) => {

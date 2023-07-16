@@ -1,4 +1,4 @@
-use crate::auto_channel::{AutoChannelEvent, AutoChannelInstance};
+use crate::auto_channel::AutoChannelInstance;
 use crate::datastructures::{output, EventHelperTrait};
 use crate::datastructures::{
     BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
@@ -14,7 +14,7 @@ use std::fmt::Formatter;
 use std::hint::unreachable_unchecked;
 use std::sync::Arc;
 use std::time::Duration;
-use tap::{TapFallible, TapOptional};
+use tap::{Tap, TapFallible, TapOptional};
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
 use tokio::fs::File;
@@ -158,6 +158,7 @@ pub async fn staff(
     conn: &mut SocketConn,
     output_file: Option<Arc<Mutex<File>>>,
     tracker_controller: &Box<dyn EventHelperTrait + Send + Sync>,
+    totp_url: &Option<String>,
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -223,6 +224,7 @@ pub async fn staff(
 
         return Ok(());
     }
+
     if line.starts_with("notifyclientleftview") {
         let view = NotifyClientLeftView::from_query(line)
             .map_err(|e| anyhow!("Got error while deserialize left view: {:?}", e))?;
@@ -255,6 +257,7 @@ pub async fn staff(
         client_map.remove(&view.client_id());
         return Ok(());
     }
+
     if line.contains("notifyclientmoved") && monitor_channel.valid() {
         let view = NotifyClientMovedView::from_query(line)
             .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
@@ -297,19 +300,58 @@ pub async fn staff(
         }
         return Ok(());
     }
+
     if line.contains("notifytextmessage") && monitor_channel.valid() {
         let view = NotifyTextMessage::from_query(line)
             .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
+
+        #[cfg(feature = "totp")]
+        if !view.msg().starts_with("!map") && totp_url.is_some() {
+            let args = view
+                .msg()
+                .split(" ")
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>();
+            if args.len() <= 2 {
+                return Ok(());
+            }
+            let code = args.get(1).unwrap();
+            if !crate::plugins::totp::current::verify_totp_url(totp_url.as_ref().unwrap(), &code)
+                .tap_err(|e| warn!("Parse totp url error: {:?}", e))
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+            let uid = args.get(2).unwrap();
+            if args.len() > 2 {
+                let target = args.get(3).unwrap();
+                monitor_channel
+                    .send_remap(
+                        target
+                            .parse()
+                            .tap_err(|e| warn!("Parse target error: {:?}", e))?,
+                        uid.parse().tap_err(|e| warn!("Parse uid error: {:?}", e))?,
+                    )
+                    .await?;
+            } else {
+                monitor_channel
+                    .send_remap(
+                        view.invoker_id(),
+                        uid.parse().tap_err(|e| warn!("Parse uid error: {:?}", e))?,
+                    )
+                    .await?;
+            }
+
+            return Ok(());
+        }
+
         if !view.msg().eq("!reset") {
             return Ok(());
         }
         monitor_channel
-            .send_signal(AutoChannelEvent::DeleteChannel(
-                view.invoker_id(),
-                view.invoker_uid().to_string(),
-            ))
+            .send_delete(view.invoker_id(), view.invoker_uid().to_string())
             .await
-            .map(|_| {
+            .tap(|_| {
                 info!(
                     "Notify auto channel thread reset {}({})",
                     view.invoker_name(),
@@ -449,15 +491,6 @@ pub async fn observer_thread(
     }
 
     loop {
-        /*if recv
-            .has_changed()
-            .tap_err(|e| anyhow!("Got error in check watcher {:?}", e))?
-        {
-            info!("Exit from staff thread!");
-            conn.logout().await.ok();
-            break;
-        }*/
-
         tokio::select! {
             message = tokio::time::timeout(Duration::from_millis(interval), recv.recv()) => {
                 let message = match message {
@@ -494,12 +527,10 @@ pub async fn observer_thread(
             }
         }
 
-        //trace!("Read data");
         let data = conn
             .read_data()
             .await
             .map_err(|e| anyhow!("Got error while read data: {:?}", e))?;
-        //trace!("Read data end");
 
         if !matches!(&data, Some(x) if !x.is_empty()) {
             continue;
@@ -524,6 +555,7 @@ pub async fn observer_thread(
                 &mut conn,
                 output_file.clone(),
                 &tracker_controller,
+                config.server().totp(),
             )
             .await?;
         }
