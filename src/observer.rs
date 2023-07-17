@@ -1,5 +1,5 @@
 use crate::auto_channel::AutoChannelInstance;
-use crate::datastructures::{output, EventHelperTrait};
+use crate::datastructures::EventHelperTrait;
 use crate::datastructures::{
     BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
     NotifyTextMessage,
@@ -12,14 +12,11 @@ use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::hint::unreachable_unchecked;
-use std::sync::Arc;
 use std::time::Duration;
 use tap::{Tap, TapFallible, TapOptional};
 use teloxide::prelude::*;
 use teloxide::types::ParseMode;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 pub enum PrivateMessageRequest {
     Message(i64, String),
@@ -156,9 +153,7 @@ pub async fn staff(
     sender: &mpsc::Sender<TelegramData>,
     current_time: &str,
     conn: &mut SocketConn,
-    output_file: Option<Arc<Mutex<File>>>,
-    tracker_controller: &Box<dyn EventHelperTrait + Send + Sync>,
-    totp_url: &Option<String>,
+    tracker_controller: &(dyn EventHelperTrait + Send + Sync),
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -190,23 +185,6 @@ pub async fn staff(
                 .map(|result| result
                     .tap_err(|_| error!("Got error while send data to telegram"))
                     .ok()),
-            async {
-                if let Some(file) = output_file {
-                    let mut file = file.lock().await;
-                    file.write(
-                        output::UserInChannel::new(
-                            view.client_id(),
-                            view.client_unique_identifier().to_string(),
-                            view.channel_id(),
-                        )
-                        .with_new_line()
-                        .as_bytes(),
-                    )
-                    .await
-                    .tap_err(|e| error!("Can't write output to file: {:?}", e))
-                    .ok();
-                }
-            },
             async {
                 #[cfg(feature = "tracker")]
                 tracker_controller
@@ -279,71 +257,12 @@ pub async fn staff(
             )
             .await
             .tap_none(|| warn!("Unable send message to tracker"));
-        if let Some(file) = output_file {
-            let mut file = file.lock().await;
-            file.write(
-                output::UserMoveToChannel::new(
-                    view.client_id(),
-                    view.channel_id(),
-                    if view.invoker_uid().is_empty() {
-                        None
-                    } else {
-                        Some(view.invoker_uid().to_string())
-                    },
-                )
-                .with_new_line()
-                .as_bytes(),
-            )
-            .await
-            .tap_err(|e| error!("Can't write output to file: {:?}", e))
-            .ok();
-        }
         return Ok(());
     }
 
     if line.contains("notifytextmessage") && monitor_channel.valid() {
         let view = NotifyTextMessage::from_query(line)
             .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
-
-        #[cfg(feature = "totp")]
-        if !view.msg().starts_with("!map") && totp_url.is_some() {
-            let args = view
-                .msg()
-                .split(" ")
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            if args.len() <= 2 {
-                return Ok(());
-            }
-            let code = args.get(1).unwrap();
-            if !crate::plugins::totp::current::verify_totp_url(totp_url.as_ref().unwrap(), &code)
-                .tap_err(|e| warn!("Parse totp url error: {:?}", e))
-                .unwrap_or(false)
-            {
-                return Ok(());
-            }
-            let uid = args.get(2).unwrap();
-            if args.len() > 2 {
-                let target = args.get(3).unwrap();
-                monitor_channel
-                    .send_remap(
-                        target
-                            .parse()
-                            .tap_err(|e| warn!("Parse target error: {:?}", e))?,
-                        uid.parse().tap_err(|e| warn!("Parse uid error: {:?}", e))?,
-                    )
-                    .await?;
-            } else {
-                monitor_channel
-                    .send_remap(
-                        view.invoker_id(),
-                        uid.parse().tap_err(|e| warn!("Parse uid error: {:?}", e))?,
-                    )
-                    .await?;
-            }
-
-            return Ok(());
-        }
 
         if !view.msg().eq("!reset") {
             return Ok(());
@@ -390,7 +309,6 @@ pub async fn observer_thread(
     telegram_sender: mpsc::Sender<TelegramData>,
     monitor_channel: AutoChannelInstance,
     config: Config,
-    output_server_broadcast: Option<String>,
     tracker_controller: Box<dyn EventHelperTrait + Send + Sync>,
 ) -> anyhow::Result<()> {
     let interval = config.misc().interval();
@@ -403,19 +321,6 @@ pub async fn observer_thread(
         !whitelist_ip.is_empty(),
         config.mute_porter().enable()
     );
-
-    let mut output_file = if let Some(ref path) = output_server_broadcast {
-        let f = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .write(true)
-            .open(path)
-            .await
-            .map_err(|e| anyhow!("Unable to open file {} {:?}", path, e))?;
-        Some(f)
-    } else {
-        None
-    };
 
     conn.change_nickname(
         OBSERVER_NICKNAME_OVERRIDE.get_or_init(|| DEFAULT_OBSERVER_NICKNAME.to_string()),
@@ -434,30 +339,6 @@ pub async fn observer_thread(
             continue;
         }
 
-        if let Some(ref mut f) = output_file {
-            let unique_identifier = if let Ok(Some(id)) = conn
-                .query_client_info(client.client_id())
-                .await
-                .map(|r| r.map(|info| info.client_unique_identifier()))
-            {
-                id
-            } else {
-                format!("{}", client.client_database_id())
-            };
-            f.write(
-                output::UserInChannel::new(
-                    client.client_id(),
-                    unique_identifier,
-                    client.channel_id(),
-                )
-                .with_new_line()
-                .as_bytes(),
-            )
-            .await
-            .tap_err(|e| error!("Can't write output to file: {:?}", e))
-            .ok();
-        }
-
         client_map.insert(
             client.client_id(),
             (client.client_nickname().to_string(), false),
@@ -472,8 +353,6 @@ pub async fn observer_thread(
             .await
             .tap_none(|| warn!("Unable send insert request"));
     }
-
-    let output_file = output_file.map(|f| Arc::new(Mutex::new(f)));
 
     // TODO: Check if this is necessary
     conn.register_observer_events()
@@ -553,9 +432,7 @@ pub async fn observer_thread(
                 &telegram_sender,
                 &current_time,
                 &mut conn,
-                output_file.clone(),
-                &tracker_controller,
-                config.server().totp(),
+                tracker_controller.as_ref(),
             )
             .await?;
         }

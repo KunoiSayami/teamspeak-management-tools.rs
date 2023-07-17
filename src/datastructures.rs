@@ -193,6 +193,7 @@ pub mod notifies {
         reason_id: i64,
         #[serde(rename = "invokerid", default)]
         invoker_id: i64,*/
+        #[cfg(feature = "tracker")]
         #[serde(rename = "invokeruid", default)]
         invoker_uid: String,
         #[cfg(feature = "tracker")]
@@ -212,6 +213,7 @@ pub mod notifies {
         pub fn invoker_id(&self) -> i64 {
             self.invoker_id
         }*/
+        #[cfg(feature = "tracker")]
         pub fn invoker_uid(&self) -> &str {
             &self.invoker_uid
         }
@@ -612,8 +614,6 @@ pub mod config {
         whitelist_ip: Option<Vec<String>>,
         #[cfg(feature = "tracker")]
         track_channel_member: Option<String>,
-        #[cfg(feature = "totp")]
-        totp: Option<String>,
     }
 
     impl Server {
@@ -642,14 +642,6 @@ pub mod config {
         #[cfg(feature = "tracker")]
         pub fn track_channel_member(&self) -> &Option<String> {
             &self.track_channel_member
-        }
-        #[cfg(feature = "totp")]
-        pub fn totp(&self) -> &Option<String> {
-            &self.totp
-        }
-        #[cfg(not(feature = "totp"))]
-        pub fn totp(&self) -> &Option<String> {
-            &None
         }
     }
 
@@ -848,50 +840,6 @@ mod status_result {
     }
 }
 
-pub mod server_broadcast_output {
-    use serde_derive::Serialize;
-
-    #[derive(Clone, Debug, Serialize)]
-    pub struct UserInChannel {
-        client_id: i64,
-        client_uid: String,
-        channel_id: i64,
-    }
-
-    impl UserInChannel {
-        pub fn new(client_id: i64, client_uid: String, channel_id: i64) -> Self {
-            Self {
-                client_id,
-                client_uid,
-                channel_id,
-            }
-        }
-        pub fn with_new_line(&self) -> String {
-            format!("{}\n", serde_json::to_string(self).unwrap())
-        }
-    }
-
-    #[derive(Clone, Debug, Serialize)]
-    pub struct UserMoveToChannel {
-        client_id: i64,
-        channel_id: i64,
-        moved_by: Option<String>,
-    }
-
-    impl UserMoveToChannel {
-        pub fn new(client_id: i64, channel_id: i64, moved_by: Option<String>) -> Self {
-            Self {
-                client_id,
-                channel_id,
-                moved_by,
-            }
-        }
-        pub fn with_new_line(&self) -> String {
-            format!("{}\n", serde_json::to_string(self).unwrap())
-        }
-    }
-}
-
 mod client_info {
     use super::FromQueryString;
     use serde_derive::Deserialize;
@@ -908,7 +856,7 @@ mod client_info {
         client_output_only_muted: bool,*/
         client_input_hardware: bool,
         client_output_hardware: bool,
-        client_unique_identifier: String,
+        //client_unique_identifier: String,
         client_away: bool,
         client_idle_time: i64,
     }
@@ -921,10 +869,6 @@ mod client_info {
                 || !self.client_output_hardware
                 || !self.client_input_hardware
                 || self.client_idle_time / 1000 > 300
-        }
-
-        pub fn client_unique_identifier(self) -> String {
-            self.client_unique_identifier
         }
     }
 
@@ -990,9 +934,8 @@ pub use pseudo_event_helper::EventHelperTrait;
 
 #[cfg(not(feature = "tracker"))]
 pub use pseudo_event_helper::PseudoEventHelper;
-pub use query_status::{QueryStatus, WebQueryStatus};
+pub use query_status::QueryStatus;
 use serde::Deserialize;
-pub use server_broadcast_output as output;
 pub use server_info::ServerInfo;
 pub use status_result::{QueryError, QueryResult};
 pub use whoami::WhoAmI;

@@ -16,8 +16,6 @@ pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
 
 pub enum AutoChannelEvent {
     Update(ClientBasicInfo),
-    #[cfg(feature = "totp")]
-    ReMap(i64, i64),
     DeleteChannel(i64, String),
     Terminate,
 }
@@ -64,12 +62,6 @@ impl AutoChannelInstance {
             return Ok(false);
         }
         self.send_signal(AutoChannelEvent::Update(view)).await
-    }
-
-    #[cfg(feature = "totp")]
-    pub async fn send_remap(&self, user_id: i64, channel_id: i64) -> anyhow::Result<bool> {
-        self.send_signal(AutoChannelEvent::ReMap(user_id, channel_id))
-            .await
     }
 
     pub fn new(channel_ids: Vec<i64>, sender: Option<mpsc::Sender<AutoChannelEvent>>) -> Self {
@@ -212,21 +204,6 @@ pub async fn auto_channel_staff(
                             .await
                             .tap_err(|_| error!("Got error in request send message"))
                             .ok();
-                    }
-                    #[cfg(feature = "totp")]
-                    AutoChannelEvent::ReMap(user_id, channel_id) => {
-                        for monitor_channel_id in &monitor_channels {
-                            let key = build_redis_key(
-                                user_id,
-                                server_info.virtual_server_unique_identifier(),
-                                *monitor_channel_id,
-                            );
-                            redis_conn
-                                .set::<_, _, i64>(&key, channel_id)
-                                .await
-                                .tap_err(|e| error!("Unable set redis key {:?}: {:?}", key, e))
-                                .ok();
-                        }
                     }
                 },
                 Ok(None) => {
