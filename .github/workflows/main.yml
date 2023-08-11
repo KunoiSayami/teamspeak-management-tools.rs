@@ -29,23 +29,18 @@ jobs:
       RUST_BACKTRACE: full
 
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          default: true
-          override: true
+      - uses: actions/checkout@v3
 
       - name: Environment
         run: |
           git submodule update --init --recursive
 
+      - name: Update rust
+        run: rustup update
+
       - name: Build binary
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --profile release --features all
+        run: |
+          cargo build --profile release --features all
 
       - name: Rename binary
         id: rename
@@ -58,7 +53,7 @@ jobs:
           else
             mv target/release/teamspeak-management-tools target/release/$BINARY_NAME
           fi
-          echo "::set-output name=bin::target/release/$BINARY_NAME"
+          echo "bin=target/release/$BINARY_NAME" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.job.binary_name }}
@@ -79,26 +74,20 @@ jobs:
       RUST_BACKTRACE: full
 
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: aarch64-unknown-linux-gnu
-          profile: minimal
-          default: true
-          override: true
+      - uses: actions/checkout@v3
       - name: Environment
         run: |
           git submodule update --init --recursive
           sudo apt install libssl-dev
-      - name: Build aarch 64 binary
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --target aarch64-unknown-linux-musl --profile release --features all
+      - name: Update rust
+        run: rustup target install aarch64-unknown-linux-musl
+      - name: Install cross
+        run: cargo install cross
+      - name: Build binary
+        run: |
+          cross build --target aarch64-unknown-linux-musl --profile release --features all
       - run: mv target/aarch64-unknown-linux-musl/release/teamspeak-management-tools target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         with:
           name: teamspeak-management-tools_linux_aarch64
           path: target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64

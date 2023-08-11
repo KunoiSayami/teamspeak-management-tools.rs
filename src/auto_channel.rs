@@ -1,9 +1,10 @@
-use crate::datastructures::config::MutePorter;
+use crate::configure::config::MutePorter;
+use crate::configure::Config;
 use crate::datastructures::notifies::ClientBasicInfo;
 use crate::datastructures::QueryResult;
 use crate::observer::PrivateMessageRequest;
 use crate::socketlib::SocketConn;
-use crate::{Config, AUTO_CHANNEL_NICKNAME_OVERRIDE, DEFAULT_AUTO_CHANNEL_NICKNAME};
+use crate::{AUTO_CHANNEL_NICKNAME_OVERRIDE, DEFAULT_AUTO_CHANNEL_NICKNAME};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;

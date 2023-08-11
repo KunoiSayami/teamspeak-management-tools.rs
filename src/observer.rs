@@ -1,11 +1,12 @@
 use crate::auto_channel::AutoChannelInstance;
+use crate::configure::Config;
 use crate::datastructures::EventHelperTrait;
 use crate::datastructures::{
     BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView,
     NotifyTextMessage,
 };
 use crate::socketlib::SocketConn;
-use crate::{Config, DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
+use crate::{DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use futures_util::future::FutureExt;
 use log::{debug, error, info, trace, warn};
