@@ -9,6 +9,7 @@ mod inner {
     use crate::datastructures::EventHelperTrait;
     #[cfg(not(feature = "tracker"))]
     use crate::datastructures::PseudoEventHelper;
+    use crate::hypervisor::types::SubThreadExitReason;
     use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
     #[cfg(feature = "tracker")]
     use crate::plugins::tracker::DatabaseHelper;
@@ -18,16 +19,16 @@ mod inner {
     use log::{debug, error, info, trace, warn};
     use std::path::Path;
     use std::rc::Rc;
+    use std::sync::Arc;
     use std::time::Duration;
     use tap::TapFallible;
     #[cfg(feature = "tracker")]
     use tap::TapOptional;
-    use tokio::sync::{mpsc, Notify};
+    use tokio::sync::{mpsc, Barrier, Notify};
 
     async fn try_init_connection(
         config: &Config,
         sid: i64,
-        thread_id: Rc<String>,
     ) -> anyhow::Result<(SocketConn, SocketConn)> {
         let retries = if *SYSTEMD_MODE.get().unwrap() {
             //debug!("Systemd mode is present, will retry if connection failed.");
@@ -76,7 +77,7 @@ mod inner {
     async fn watchdog(
         conn: (SocketConn, SocketConn),
         config: Config,
-        notifier: Notify,
+        notifier: Arc<Notify>,
     ) -> ClientResult<()> {
         let (observer_connection, auto_channel_connection) = conn;
 
@@ -137,7 +138,8 @@ mod inner {
                 trace!("Send signal!");
                 notifier.notified().await;
                 error!("Force exit program.");
-                return Err("Main handler".into())
+                panic!("Main handler");
+                //return Err(SubThreadExitReason::from())
             } => {
                 unreachable!()
             }
@@ -158,23 +160,29 @@ mod inner {
         }
 
         // TODO: Need handle error
-        let item = tokio::try_join!(
+        tokio::try_join!(
             auto_channel_handler,
             telegram_handler,
-            user_tracker.wait(),
-            tokio::spawn(async {
+            /*#[cfg(feature = "tracker")]
+            user_tracker.wait(),*/
+            /*tokio::spawn(async {
                 notifier.notified().await;
                 error!("Force exit program (waiting sqlite handler).");
                 return Err("Sqlite handler".into());
-            })
+            })*/
         )
         .map_err(|e| anyhow!("try_join! failed: {:?}", e))?;
 
         Ok(())
     }
 
-    pub async fn bootstrap<P: AsRef<Path>>(path: P, notifier: Notify) -> ClientResult<()> {
-        let config = Config::try_from(path.as_ref())?;
+    pub(super) async fn bootstrap(
+        config: Config,
+        notifier: Arc<Notify>,
+        barrier: Arc<Barrier>,
+    ) -> ClientResult<()> {
+        barrier.wait().await;
+
         watchdog(
             try_init_connection(&config, config.server().server_id()).await?,
             config,
@@ -186,9 +194,9 @@ mod inner {
 
 mod types {
     use anyhow::anyhow;
-    use std::fmt::{Debug, Formatter};
+    use std::fmt::{write, Debug, Formatter};
 
-    pub type ClientResult<T> = Result<T, SubThreadExitReason>;
+    pub(super) type ClientResult<T> = Result<T, SubThreadExitReason>;
 
     #[derive(Copy, Clone, Debug)]
     pub(super) enum HyperVisorEvent {
@@ -198,6 +206,7 @@ mod types {
     pub(super) enum SubThreadExitReason {
         Error(anyhow::Error),
         Abort(String),
+        JoinError(tokio::task::JoinError),
     }
 
     impl SubThreadExitReason {}
@@ -226,6 +235,12 @@ mod types {
         }
     }
 
+    impl From<tokio::task::JoinError> for SubThreadExitReason {
+        fn from(value: tokio::task::JoinError) -> Self {
+            Self::JoinError(value)
+        }
+    }
+
     impl Debug for SubThreadExitReason {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
@@ -234,6 +249,9 @@ mod types {
                 }
                 Self::Abort(abort_msg) => {
                     write!(f, "Abort from: {}", abort_msg)
+                }
+                SubThreadExitReason::JoinError(e) => {
+                    write!(f, "JoinError: {:?}", e)
                 }
             }
         }
@@ -246,39 +264,71 @@ mod controller {
     use anyhow::anyhow;
     use log::{error, info};
     use std::fmt::Debug;
+    use std::future::Future;
     use std::path::Path;
+    use std::pin::Pin;
     use std::rc::Rc;
-    use tokio::sync::Notify;
+    use std::sync::Arc;
+    use tokio::sync::{Barrier, Notify};
+    use tokio::task::JoinHandle;
 
-    pub async fn start<P: AsRef<Path> + Debug>(path: P, notify: Notify) -> anyhow::Result<()> {
-        if let Err(e) = bootstrap(path, notify).await {
-            error!("Got error in {}: {:?}", thread_id, e);
-        }
-        Ok(())
+    #[derive(Debug)]
+    pub struct Controller {
+        join_handler: JoinHandle<anyhow::Result<()>>,
     }
 
-    pub async fn bootstrap_controller<P: AsRef<Path> + Debug>(
-        paths: Vec<P>,
-        systemd_mode: bool,
-    ) -> anyhow::Result<()> {
-        let notify = Notify::new();
-        let configures = paths
-            .into_iter()
-            .map(|path| async {
-                let thread_id = Rc::new(uuid::Uuid::new_v4().to_string());
-                let ret = (
-                    thread_id,
-                    Config::try_from(path).map_err(|e| anyhow!("{:?}: {}", path, e))?,
-                );
-                info!("Load {:?} as {}", &path, thread_id);
-                Ok(ret)
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+    impl Controller {
+        fn new(future: Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>) -> Self {
+            Self {
+                join_handler: tokio::spawn(future),
+            }
+        }
+
+        pub async fn wait(self) -> Result<anyhow::Result<()>, tokio::task::JoinError> {
+            self.join_handler.await
+        }
+
+        pub async fn bootstrap_controller<P: AsRef<Path> + Debug>(
+            paths: Vec<P>,
+            notify: Arc<Notify>,
+        ) -> anyhow::Result<Vec<Controller>> {
+            let configures = paths
+                .into_iter()
+                .map(|path| {
+                    let thread_id = Rc::new(uuid::Uuid::new_v4().to_string());
+                    let ret = (
+                        thread_id.clone(),
+                        Config::try_from(path.as_ref())
+                            .map_err(|e| anyhow!("{:?}: {}", path, e))?,
+                    );
+                    info!("Load {:?} as {}", &path, thread_id);
+                    Ok(ret)
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            let barrier = Arc::new(Barrier::new(configures.len()));
+
+            let mut v = Vec::new();
+
+            for (thread_id, config) in configures {
+                let notify = notify.clone();
+                let thread_id = Rc::into_inner(thread_id).unwrap();
+                let barrier = barrier.clone();
+                v.push(Controller::new(Box::pin(async move {
+                    if let Err(e) = bootstrap(config, notify, barrier).await {
+                        error!("Got error in {}: {:?}", thread_id, e);
+                    }
+                    Ok(())
+                })));
+            }
+
+            Ok(v)
+        }
     }
 }
 
-static SYSTEMD_MODE: OnceCell<bool> = OnceCell::new();
+pub static SYSTEMD_MODE: OnceCell<bool> = OnceCell::new();
 const SYSTEMD_MODE_RETRIES_TIMES: u32 = 3;
 
+pub use controller::Controller;
 use once_cell::sync::OnceCell;
 use types::ClientResult;

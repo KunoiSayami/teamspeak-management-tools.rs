@@ -648,6 +648,10 @@ mod pseudo_event_helper {
         pub fn new() -> Self {
             Self {}
         }
+
+        pub async fn wait() -> Result<(), ()> {
+            Ok(())
+        }
     }
 
     #[cfg(not(feature = "tracker"))]

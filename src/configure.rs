@@ -2,6 +2,7 @@ pub mod config {
     use anyhow::anyhow;
     use serde_derive::Deserialize;
     use std::collections::HashMap;
+    use std::fmt::Debug;
     use std::fs::read_to_string;
     use std::path::Path;
 
@@ -267,6 +268,14 @@ pub mod config {
             toml::from_str(&content).map_err(|e| anyhow!("Deserialize toml error: {:?}", e))
         }
     }
+
+    /*impl TryFrom<dyn AsRef<Path>> for Config {
+        type Error = anyhow::Error;
+
+        fn try_from(value: Box<dyn AsRef<Path>>) -> Result<Self, Self::Error> {
+            Config::try_from(value.as_ref())
+        }
+    }*/
 }
 
 pub use config::Config;
