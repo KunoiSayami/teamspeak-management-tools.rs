@@ -649,7 +649,7 @@ mod pseudo_event_helper {
             Self {}
         }
 
-        pub async fn wait() -> Result<(), ()> {
+        pub async fn wait(self) -> Result<(), ()> {
             Ok(())
         }
     }

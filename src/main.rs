@@ -6,13 +6,11 @@ mod observer;
 mod plugins;
 mod socketlib;
 
-use crate::configure::Config;
 use crate::hypervisor::{Controller, SYSTEMD_MODE};
 use clap::{arg, command};
 use log::{error, LevelFilter};
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
-use tap::TapFallible;
 use tokio::sync::Notify;
 
 const DEFAULT_OBSERVER_NICKNAME: &str = "observer";

@@ -9,16 +9,13 @@ mod inner {
     use crate::datastructures::EventHelperTrait;
     #[cfg(not(feature = "tracker"))]
     use crate::datastructures::PseudoEventHelper;
-    use crate::hypervisor::types::SubThreadExitReason;
     use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
     #[cfg(feature = "tracker")]
     use crate::plugins::tracker::DatabaseHelper;
     use crate::socketlib::SocketConn;
     use anyhow::anyhow;
     use futures_util::TryFutureExt;
-    use log::{debug, error, info, trace, warn};
-    use std::path::Path;
-    use std::rc::Rc;
+    use log::{error, info, trace, warn};
     use std::sync::Arc;
     use std::time::Duration;
     use tap::TapFallible;
@@ -163,8 +160,8 @@ mod inner {
         tokio::try_join!(
             auto_channel_handler,
             telegram_handler,
-            /*#[cfg(feature = "tracker")]
-            user_tracker.wait(),*/
+            #[cfg(feature = "tracker")]
+            user_tracker.wait(),
             /*tokio::spawn(async {
                 notifier.notified().await;
                 error!("Force exit program (waiting sqlite handler).");
@@ -181,8 +178,8 @@ mod inner {
         notifier: Arc<Notify>,
         barrier: Arc<Barrier>,
     ) -> ClientResult<()> {
+        // Await all client ready
         barrier.wait().await;
-
         watchdog(
             try_init_connection(&config, config.server().server_id()).await?,
             config,
@@ -194,14 +191,9 @@ mod inner {
 
 mod types {
     use anyhow::anyhow;
-    use std::fmt::{write, Debug, Formatter};
+    use std::fmt::{Debug, Formatter};
 
     pub(super) type ClientResult<T> = Result<T, SubThreadExitReason>;
-
-    #[derive(Copy, Clone, Debug)]
-    pub(super) enum HyperVisorEvent {
-        Terminate,
-    }
 
     pub(super) enum SubThreadExitReason {
         Error(anyhow::Error),

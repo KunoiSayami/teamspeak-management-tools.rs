@@ -209,10 +209,8 @@ pub mod handler {
             }
         }
 
-        pub async fn wait(self) -> anyhow::Result<anyhow::Result<()>> {
-            self.handler
-                .await
-                .map_err(|e| anyhow!("Unable wait handler: {:?}", e))
+        pub async fn wait(self) -> Result<anyhow::Result<()>, tokio::task::JoinError> {
+            self.handler.await
         }
     }
 
