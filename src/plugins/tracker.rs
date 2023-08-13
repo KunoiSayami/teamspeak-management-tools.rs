@@ -135,7 +135,6 @@ pub mod handler {
     use super::types::EventHelper;
     use super::Event;
     use super::{check_database, create_new_database, insert_database_version, DatabaseResult};
-    use anyhow::anyhow;
     use log::error;
     use sqlx::sqlite::SqliteConnectOptions;
     use sqlx::{ConnectOptions, SqliteConnection};
@@ -225,6 +224,5 @@ use sqlx::SqliteConnection;
 
 pub use handler::DatabaseHelper;
 pub use types::Event;
-pub use types::EventHelper as DatabaseEventHelper;
 pub use v1 as current;
 pub use v1::VERSION;

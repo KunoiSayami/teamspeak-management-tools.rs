@@ -90,7 +90,7 @@ mod inner {
             .await;
 
         #[cfg(not(feature = "tracker"))]
-        let tracker_controller = PseudoEventHelper::new();
+        let (user_tracker, tracker_controller) = PseudoEventHelper::new();
 
         let auto_channel_handler = tokio::spawn(auto_channel_staff(
             auto_channel_connection,
@@ -157,18 +157,8 @@ mod inner {
         }
 
         // TODO: Need handle error
-        tokio::try_join!(
-            auto_channel_handler,
-            telegram_handler,
-            #[cfg(feature = "tracker")]
-            user_tracker.wait(),
-            /*tokio::spawn(async {
-                notifier.notified().await;
-                error!("Force exit program (waiting sqlite handler).");
-                return Err("Sqlite handler".into());
-            })*/
-        )
-        .map_err(|e| anyhow!("try_join! failed: {:?}", e))?;
+        tokio::try_join!(auto_channel_handler, telegram_handler, user_tracker.wait(),)
+            .map_err(|e| anyhow!("try_join! failed: {:?}", e))?;
 
         Ok(())
     }

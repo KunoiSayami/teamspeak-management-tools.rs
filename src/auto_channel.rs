@@ -7,13 +7,11 @@ use crate::socketlib::SocketConn;
 use crate::{AUTO_CHANNEL_NICKNAME_OVERRIDE, DEFAULT_AUTO_CHANNEL_NICKNAME};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
-use once_cell::sync::OnceCell;
 use redis::AsyncCommands;
+use std::sync::Arc;
 use std::time::Duration;
 use tap::{Tap, TapFallible};
 use tokio::sync::mpsc;
-
-pub static MSG_MOVE_TO_CHANNEL: OnceCell<String> = OnceCell::new();
 
 pub enum AutoChannelEvent {
     Update(ClientBasicInfo),
@@ -147,6 +145,7 @@ pub async fn auto_channel_staff(
     let monitor_channels = config.server().channels();
     let privilege_group = config.server().privilege_group_id();
     let channel_permissions = config.channel_permissions();
+    let moved_message = Arc::new(config.message().move_to_channel());
     conn.change_nickname(
         AUTO_CHANNEL_NICKNAME_OVERRIDE.get_or_init(|| DEFAULT_AUTO_CHANNEL_NICKNAME.to_string()),
     )
@@ -197,10 +196,11 @@ pub async fn auto_channel_staff(
                                 .tap_err(|e| error!("Got error while delete from redis: {:?}", e))
                                 .ok();
                         }
+                        // TODO: Remove Arc
                         private_message_sender
                             .send(PrivateMessageRequest::Message(
                                 client_id,
-                                "Received.".to_string(),
+                                Arc::new("Received.".to_string()),
                             ))
                             .await
                             .tap_err(|_| error!("Got error in request send message"))
@@ -311,7 +311,7 @@ pub async fn auto_channel_staff(
             private_message_sender
                 .send(PrivateMessageRequest::Message(
                     client.client_id(),
-                    MSG_MOVE_TO_CHANNEL.get().unwrap().clone(),
+                    moved_message.clone(),
                 ))
                 .await
                 .tap_err(|_| warn!("Send message request fail"))

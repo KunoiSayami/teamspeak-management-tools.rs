@@ -39,12 +39,16 @@ async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Res
         } => {
             unreachable!()
         }
-        _ = async move {
+        ret = async move {
+            let mut ret = Vec::new();
             for controller in controllers {
-                controller.wait().await;
-            }
+                ret.push(controller.wait().await);
+            };
+            ret
         } => {
-
+            for sub_ret in ret.into_iter().collect::<Result<Vec<_>, _>>()? {
+                sub_ret?;
+            }
         }
     }
 

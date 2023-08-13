@@ -645,12 +645,12 @@ mod pseudo_event_helper {
 
     #[cfg(not(feature = "tracker"))]
     impl PseudoEventHelper {
-        pub fn new() -> Self {
-            Self {}
+        pub fn new() -> (Self, Self) {
+            (Self {}, Self {})
         }
 
-        pub async fn wait(self) -> Result<(), ()> {
-            Ok(())
+        pub async fn wait(self) -> Result<anyhow::Result<()>, tokio::task::JoinError> {
+            tokio::spawn(async { Ok(()) }).await
         }
     }
 

@@ -13,6 +13,7 @@ use log::{debug, error, info, trace, warn};
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::hint::unreachable_unchecked;
+use std::sync::Arc;
 use std::time::Duration;
 use tap::{Tap, TapFallible, TapOptional};
 use teloxide::prelude::*;
@@ -20,7 +21,7 @@ use teloxide::types::ParseMode;
 use tokio::sync::mpsc;
 
 pub enum PrivateMessageRequest {
-    Message(i64, String),
+    Message(i64, Arc<String>),
     KeepAlive,
     Terminate,
 }
