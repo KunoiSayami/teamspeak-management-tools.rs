@@ -10,10 +10,9 @@ use crate::{DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use futures_util::future::FutureExt;
 use log::{debug, error, info, trace, warn};
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Formatter;
-use std::hint::unreachable_unchecked;
-use std::sync::Arc;
 use std::time::Duration;
 use tap::{Tap, TapFallible, TapOptional};
 use teloxide::prelude::*;
@@ -21,7 +20,8 @@ use teloxide::types::ParseMode;
 use tokio::sync::mpsc;
 
 pub enum PrivateMessageRequest {
-    Message(i64, Arc<String>),
+    // Credit: SpriteOvO
+    Message(i64, Cow<'static, str>),
     KeepAlive,
     Terminate,
 }
@@ -107,13 +107,13 @@ impl std::fmt::Display for TelegramData {
                 }
                 _ => unreachable!("Got unexpected left message: {:?}", view),
             },
-            TelegramData::Terminate => unsafe {
-                unreachable_unchecked();
-            },
+            TelegramData::Terminate => unreachable!(),
         }
     }
 }
 
+// TODO: Add thread_id
+// TODO: Merge messages
 pub async fn telegram_thread(
     token: String,
     target: i64,
@@ -121,7 +121,7 @@ pub async fn telegram_thread(
     mut receiver: mpsc::Receiver<TelegramData>,
 ) -> anyhow::Result<()> {
     if token.is_empty() {
-        warn!("Token is empty, skipped all send message request.");
+        info!("Token is empty, skipped all send message request. Send to telegram disabled.");
         while let Some(cmd) = receiver.recv().await {
             if let TelegramData::Terminate = cmd {
                 break;
@@ -145,6 +145,7 @@ pub async fn telegram_thread(
     Ok(())
 }
 
+// TODO: Add thread_id
 #[allow(clippy::too_many_arguments)]
 pub async fn staff(
     line: &str,
@@ -305,6 +306,7 @@ pub async fn staff(
     Ok(())
 }
 
+// TODO: Add thread_id
 pub async fn observer_thread(
     mut conn: SocketConn,
     mut recv: mpsc::Receiver<PrivateMessageRequest>,
@@ -380,6 +382,7 @@ pub async fn observer_thread(
                 };
                 match message {
                     PrivateMessageRequest::Message(client_id, message) => {
+
                         conn.send_text_message_unchecked(client_id, &message)
                         .await
                         .map(|_| trace!("Send message to {}", client_id))

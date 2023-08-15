@@ -73,7 +73,6 @@ fn build_logger(count: u8) {
     builder.init();
 }
 
-#[allow(unreachable_code)]
 fn main() -> anyhow::Result<()> {
     let matches = command!()
         .args(&[

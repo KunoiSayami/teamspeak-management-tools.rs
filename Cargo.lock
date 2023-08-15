@@ -2144,7 +2144,7 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "teamspeak-management-tools"
-version = "4.0.0-beta"
+version = "4.0.0-rc"
 dependencies = [
  "anyhow",
  "async-trait",
