@@ -1,7 +1,7 @@
 mod inner {
-    use super::ClientResult;
-    use super::SYSTEMD_MODE;
-    use super::SYSTEMD_MODE_RETRIES_TIMES;
+    use super::{
+        types::SubThreadExitReason, ClientResult, SYSTEMD_MODE, SYSTEMD_MODE_RETRIES_TIMES,
+    };
     use crate::auto_channel::{auto_channel_staff, AutoChannelInstance};
     use crate::configure::config::RawQuery;
     use crate::configure::Config;
@@ -22,6 +22,7 @@ mod inner {
     #[cfg(feature = "tracker")]
     use tap::TapOptional;
     use tokio::sync::{mpsc, Barrier, Notify};
+    use tuple_conv::RepeatedTuple;
 
     async fn try_init_connection(
         config: &Config,
@@ -119,7 +120,7 @@ mod inner {
         ));
 
         tokio::select! {
-            _ = async {
+            ret = async {
                 notifier.notified().await;
                 info!("Recv SIGINT, send signal to thread.");
                 private_message_sender
@@ -135,10 +136,9 @@ mod inner {
                 trace!("Send signal!");
                 notifier.notified().await;
                 error!("Force exit program.");
-                panic!("Main handler");
-                //return Err(SubThreadExitReason::from())
+                SubThreadExitReason::from("Main handler")
             } => {
-                unreachable!()
+                return Err(ret);
             }
             _ = async {
                 loop {
@@ -156,9 +156,12 @@ mod inner {
             }
         }
 
-        // TODO: Need handle error
-        tokio::try_join!(auto_channel_handler, telegram_handler, user_tracker.wait(),)
-            .map_err(|e| anyhow!("try_join! failed: {:?}", e))?;
+        for ret in tokio::try_join!(auto_channel_handler, telegram_handler, user_tracker.wait(),)
+            .map_err(|e| anyhow!("try_join! failed: {:?}", e))?
+            .to_vec()
+        {
+            ret?;
+        }
 
         Ok(())
     }
