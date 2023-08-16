@@ -112,13 +112,13 @@ impl std::fmt::Display for TelegramData {
     }
 }
 
-// TODO: Add thread_id
-// TODO: Merge messages
 pub async fn telegram_thread(
     token: String,
     target: i64,
     server: String,
     mut receiver: mpsc::Receiver<TelegramData>,
+    config_id: String,
+    thread_id: String,
 ) -> anyhow::Result<()> {
     if token.is_empty() {
         info!("Token is empty, skipped all send message request. Send to telegram disabled.");
@@ -136,16 +136,15 @@ pub async fn telegram_thread(
         if let TelegramData::Terminate = cmd {
             break;
         }
-        let payload = bot.send_message(ChatId(target), cmd.to_string());
+        let payload = bot.send_message(ChatId(target), format!("[{}] {}", config_id, cmd));
         if let Err(e) = payload.send().await {
-            error!("Got error in send message {:?}", e);
+            error!("[{}] Got error in send message {:?}", thread_id, e);
         }
     }
-    debug!("Send message daemon exiting...");
+    debug!("[{}] Send message daemon exiting...", thread_id);
     Ok(())
 }
 
-// TODO: Add thread_id
 #[allow(clippy::too_many_arguments)]
 pub async fn staff(
     line: &str,
@@ -157,6 +156,7 @@ pub async fn staff(
     current_time: &str,
     conn: &mut SocketConn,
     tracker_controller: &(dyn EventHelperTrait + Send + Sync),
+    thread_id: String,
 ) -> anyhow::Result<()> {
     if line.starts_with("notifycliententerview") {
         let view = NotifyClientEnterView::from_query(line)
@@ -176,7 +176,7 @@ pub async fn staff(
             monitor_channel.send(view.clone().into()).map(|result| {
                 result.map(|sent| {
                     if sent {
-                        trace!("Notify auto channel thread")
+                        trace!("[{}] Notify auto channel thread", thread_id)
                     }
                 })
             }),
@@ -186,7 +186,7 @@ pub async fn staff(
                     view.clone()
                 ))
                 .map(|result| result
-                    .tap_err(|_| error!("Got error while send data to telegram"))
+                    .tap_err(|_| error!("[{}] Got error while send data to telegram", thread_id))
                     .ok()),
             async {
                 #[cfg(feature = "tracker")]
@@ -198,7 +198,7 @@ pub async fn staff(
                         Some(view.channel_id() as i32),
                     )
                     .await
-                    .tap_none(|| warn!("Unable send message to tracker"))
+                    .tap_none(|| warn!("[{}] Unable send message to tracker", thread_id))
             }
         )
         .0?;
@@ -224,7 +224,7 @@ pub async fn staff(
                 nickname.0.clone(),
             ))
             .await
-            .tap_err(|_| error!("Got error while send data to telegram"))
+            .tap_err(|_| error!("[{}] Got error while send data to telegram", thread_id))
             .ok();
         tracker_controller
             .insert(
@@ -234,7 +234,7 @@ pub async fn staff(
                 None,
             )
             .await
-            .tap_none(|| warn!("Unable send message to tracker"));
+            .tap_none(|| warn!("[{}] Unable send message to tracker", thread_id));
         client_map.remove(&view.client_id());
         return Ok(());
     }
@@ -247,7 +247,7 @@ pub async fn staff(
             .await
             .map(|sent| {
                 if sent {
-                    trace!("Notify auto channel thread")
+                    trace!("[{}] Notify auto channel thread", thread_id)
                 }
             })?;
         #[cfg(feature = "tracker")]
@@ -259,7 +259,7 @@ pub async fn staff(
                 Some(view.channel_id() as i32),
             )
             .await
-            .tap_none(|| warn!("Unable send message to tracker"));
+            .tap_none(|| warn!("[{}] Unable send message to tracker", thread_id));
         return Ok(());
     }
 
@@ -275,7 +275,8 @@ pub async fn staff(
             .await
             .tap(|_| {
                 info!(
-                    "Notify auto channel thread reset {}({})",
+                    "[{}] Notify auto channel thread reset {}({})",
+                    thread_id,
                     view.invoker_name(),
                     view.invoker_uid()
                 )
@@ -291,7 +292,8 @@ pub async fn staff(
             if whitelist_ip.iter().any(|ip| entry.ip().eq(ip)) {
                 conn.ban_del(entry.ban_id()).await.map(|_| {
                     info!(
-                        "Remove whitelist ip {} from ban list (was {})",
+                        "[{}] Remove whitelist ip {} from ban list (was {})",
+                        thread_id,
                         entry.ip(),
                         entry
                     )
@@ -306,7 +308,6 @@ pub async fn staff(
     Ok(())
 }
 
-// TODO: Add thread_id
 pub async fn observer_thread(
     mut conn: SocketConn,
     mut recv: mpsc::Receiver<PrivateMessageRequest>,
@@ -314,13 +315,15 @@ pub async fn observer_thread(
     monitor_channel: AutoChannelInstance,
     config: Config,
     tracker_controller: Box<dyn EventHelperTrait + Send + Sync>,
+    thread_id: String,
 ) -> anyhow::Result<()> {
     let interval = config.misc().interval();
     let whitelist_ip = config.server().whitelist_ip();
     let ignore_list = config.server().ignore_user_name();
+    let thread_id = thread_id;
     info!(
-        "Version: {}, interval: {}, ban list checker: {}, mute porter: {}",
-        env!("CARGO_PKG_VERSION"),
+        "[{}], interval: {}, ban list checker: {}, mute porter: {}",
+        thread_id,
         interval,
         !whitelist_ip.is_empty(),
         config.mute_porter().enable()
@@ -350,12 +353,12 @@ pub async fn observer_thread(
         tracker_controller
             .insert(
                 client.client_id() as i32,
-                Some(format!("{}", client.client_database_id())),
+                Some(client.client_database_id().to_string()),
                 Some(client.client_nickname().to_string()),
                 Some(client.channel_id() as i32),
             )
             .await
-            .tap_none(|| warn!("Unable send insert request"));
+            .tap_none(|| warn!("[{}] Unable send insert request", thread_id));
     }
 
     // TODO: Check if this is necessary
@@ -385,7 +388,7 @@ pub async fn observer_thread(
 
                         conn.send_text_message_unchecked(client_id, &message)
                         .await
-                        .map(|_| trace!("Send message to {}", client_id))
+                        .map(|_| trace!("[{}] Send message to {}", thread_id,client_id))
                         .map_err(|e| {
                             anyhow!("Got error while send message to {} {:?}", client_id, e)
                         })?;
@@ -398,7 +401,7 @@ pub async fn observer_thread(
                             })?;
                     }
                     PrivateMessageRequest::Terminate => {
-                        info!("Exit from staff thread!");
+                        info!("[{}] Exit from staff thread!", thread_id);
                         conn.logout().await.ok();
                         break;
                     }
@@ -426,7 +429,7 @@ pub async fn observer_thread(
             if line.is_empty() {
                 continue;
             }
-            trace!("{}", line);
+            trace!("[{}] {}", thread_id, line);
 
             staff(
                 line,
@@ -438,6 +441,7 @@ pub async fn observer_thread(
                 &current_time,
                 &mut conn,
                 tracker_controller.as_ref(),
+                thread_id.clone(),
             )
             .await?;
         }
@@ -447,13 +451,13 @@ pub async fn observer_thread(
     monitor_channel
         .send_terminate()
         .await
-        .tap_err(|e| error!("{:?}", e))
+        .tap_err(|e| error!("[{}] {:?}", thread_id, e))
         .ok();
 
     telegram_sender
         .send(TelegramData::Terminate)
         .await
-        .tap_err(|_| error!("Got error while send terminate signal"))
+        .tap_err(|_| error!("[{}] Got error while send terminate signal", thread_id))
         .ok();
     Ok(())
 }

@@ -77,6 +77,7 @@ impl AutoChannelInstance {
 pub async fn mute_porter_function(
     conn: &mut SocketConn,
     mute_porter: &MutePorter,
+    thread_id: &str,
 ) -> QueryResult<()> {
     for client in conn
         .query_clients()
@@ -90,7 +91,7 @@ pub async fn mute_porter_function(
             if let Some(true) = conn
                 .query_client_info(client.client_id())
                 .await
-                .tap_err(|e| error!("Unable query client information: {:?}", e))
+                .tap_err(|e| error!("[{}] Unable query client information: {:?}", thread_id, e))
                 .ok()
                 .flatten()
                 .map(|r| r.is_client_muted())
@@ -99,7 +100,8 @@ pub async fn mute_porter_function(
                     .await
                     .tap_err(|e| {
                         error!(
-                            "Unable move client {} to channel {}: {:?}",
+                            "[{}] Unable move client {} to channel {}: {:?}",
+                            thread_id,
                             client.client_id(),
                             mute_porter.target_channel(),
                             e
@@ -107,7 +109,8 @@ pub async fn mute_porter_function(
                     })
                     .map(|_| {
                         info!(
-                            "Moved {} to {}",
+                            "[{}] Moved {} to {}",
+                            thread_id,
                             client.client_id(),
                             mute_porter.target_channel()
                         )
@@ -133,6 +136,7 @@ pub async fn auto_channel_staff(
     mut receiver: mpsc::Receiver<AutoChannelEvent>,
     private_message_sender: mpsc::Sender<PrivateMessageRequest>,
     config: Config,
+    thread_id: String,
 ) -> anyhow::Result<()> {
     let redis = redis::Client::open(config.server().redis_server())
         .map_err(|e| anyhow!("Connect redis server error! {:?}", e))?;
@@ -161,8 +165,8 @@ pub async fn auto_channel_staff(
         .await
         .map_err(|e| anyhow!("Query server info error: {:?}", e))?;
 
-    info!("Connected: {}", who_am_i.client_id());
-    debug!("Monitor: {}", monitor_channels.len());
+    info!("[{}] Connected: {}", thread_id, who_am_i.client_id());
+    debug!("[{}] Monitor: {}", thread_id, monitor_channels.len());
 
     let mut skip_sleep = true;
     loop {
@@ -191,8 +195,13 @@ pub async fn auto_channel_staff(
                             redis_conn
                                 .del::<_, i64>(&key)
                                 .await
-                                .tap(|_| trace!("Deleted"))
-                                .tap_err(|e| error!("Got error while delete from redis: {:?}", e))
+                                .tap(|_| trace!("[{}] Deleted", thread_id))
+                                .tap_err(|e| {
+                                    error!(
+                                        "[{}] Got error while delete from redis: {:?}",
+                                        thread_id, e
+                                    )
+                                })
                                 .ok();
                         }
                         private_message_sender
@@ -201,12 +210,14 @@ pub async fn auto_channel_staff(
                                 "Received.".into(),
                             ))
                             .await
-                            .tap_err(|_| error!("Got error in request send message"))
+                            .tap_err(|_| {
+                                error!("[{}] Got error in request send message", thread_id)
+                            })
                             .ok();
                     }
                 },
                 Ok(None) => {
-                    error!("Channel closed!");
+                    error!("[{}] Channel closed!", thread_id);
                     break;
                 }
                 Err(_) => {
@@ -215,7 +226,7 @@ pub async fn auto_channel_staff(
                         .map_err(|e| anyhow!("Got error while doing keep alive {:?}", e))
                         .ok();
                     if config.mute_porter().enable() {
-                        mute_porter_function(&mut conn, config.mute_porter()).await?;
+                        mute_porter_function(&mut conn, config.mute_porter(), &thread_id).await?;
                     }
                     continue;
                 }
@@ -226,7 +237,7 @@ pub async fn auto_channel_staff(
         let clients = match conn
             .query_clients()
             .await
-            .tap_err(|e| error!("Got error while query clients: {:?}", e))
+            .tap_err(|e| error!("[{}] Got error while query clients: {:?}", thread_id, e))
         {
             Ok(clients) => clients,
             Err(_) => continue,
@@ -259,7 +270,10 @@ pub async fn auto_channel_staff(
                                 name.push('1');
                                 continue;
                             }
-                            error!("Got error while create {:?} channel: {:?}", name, e);
+                            error!(
+                                "[{}] Got error while create {:?} channel: {:?}",
+                                thread_id, name, e
+                            );
                             continue 'outer;
                         }
                     };
@@ -273,18 +287,33 @@ pub async fn auto_channel_staff(
                     privilege_group,
                 )
                 .await
-                .tap_err(|e| error!("Got error while set client channel group: {:?}", e))
+                .tap_err(|e| {
+                    error!(
+                        "[{}] Got error while set client channel group: {:?}",
+                        thread_id, e
+                    )
+                })
                 .ok();
 
                 conn.add_channel_permission(channel_id, &[(133, 75)])
                     .await
-                    .tap_err(|e| error!("Got error while set default channel permissions: {:?}", e))
+                    .tap_err(|e| {
+                        error!(
+                            "[{}] Got error while set default channel permissions: {:?}",
+                            thread_id, e
+                        )
+                    })
                     .ok();
 
                 if let Some(permissions) = channel_permissions.get(&client.channel_id()) {
                     conn.add_channel_permission(channel_id, permissions)
                         .await
-                        .tap_err(|e| error!("Got error while set channel permissions: {:?}", e))
+                        .tap_err(|e| {
+                            error!(
+                                "[{}] Got error while set channel permissions: {:?}",
+                                thread_id, e
+                            )
+                        })
                         .ok();
                 }
 
@@ -301,7 +330,7 @@ pub async fn auto_channel_staff(
                         skip_sleep = true;
                         continue;
                     }
-                    error!("Got error while move client: {:?}", e);
+                    error!("[{}] Got error while move client: {:?}", thread_id, e);
                     continue;
                 }
             };
@@ -312,7 +341,7 @@ pub async fn auto_channel_staff(
                     moved_message.clone().into(),
                 ))
                 .await
-                .tap_err(|_| warn!("Send message request fail"))
+                .tap_err(|_| warn!("[{}] Send message request fail", thread_id))
                 .ok();
 
             if create_new {

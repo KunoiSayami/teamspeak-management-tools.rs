@@ -258,6 +258,15 @@ pub mod config {
             }
         }
 
+        pub fn get_id(&self) -> String {
+            format!(
+                "{}:{} {}",
+                self.raw_query.server(),
+                self.raw_query.port(),
+                self.server.server_id.unwrap_or(1)
+            )
+        }
+
         pub fn mute_porter(&self) -> &MutePorter {
             &self.mute_porter
         }

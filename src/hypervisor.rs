@@ -76,12 +76,15 @@ mod inner {
         conn: (SocketConn, SocketConn),
         config: Config,
         notifier: Arc<Notify>,
+        thread_id: String,
     ) -> ClientResult<()> {
         let (observer_connection, auto_channel_connection) = conn;
 
         let (private_message_sender, private_message_receiver) = mpsc::channel(4096);
         let (trigger_sender, trigger_receiver) = mpsc::channel(1024);
         let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
+
+        //let thread_id = Rc::new(thread_id);
 
         #[cfg(feature = "tracker")]
         let (user_tracker, tracker_controller) =
@@ -98,6 +101,7 @@ mod inner {
             trigger_receiver,
             private_message_sender.clone(),
             config.clone(),
+            thread_id.clone(),
         ));
 
         let auto_channel_instance =
@@ -110,6 +114,7 @@ mod inner {
             auto_channel_instance,
             config.clone(),
             Box::new(tracker_controller.clone()),
+            thread_id.clone(),
         ));
 
         let telegram_handler = tokio::spawn(telegram_thread(
@@ -117,12 +122,14 @@ mod inner {
             config.telegram().target(),
             config.telegram().api_server(),
             telegram_receiver,
+            config.get_id(),
+            thread_id.clone(),
         ));
 
         tokio::select! {
             ret = async {
                 notifier.notified().await;
-                info!("Recv SIGINT, send signal to thread.");
+                info!("[{}] Recv SIGINT, send signal to thread.", &thread_id);
                 private_message_sender
                     .send(PrivateMessageRequest::Terminate)
                     .map_err(|_| error!("Send terminate error"))
@@ -141,11 +148,12 @@ mod inner {
                 return Err(ret);
             }
             _ = async {
+                //let thread_id = thread_id.clone();
                 loop {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                     private_message_sender.send(PrivateMessageRequest::KeepAlive)
                         .await
-                        .tap_err(|_| error!("Send keep alive command error"))
+                        .tap_err(|_| error!("[{}] Send keep alive command error", &thread_id))
                         .ok();
                 }
             } => {
@@ -157,7 +165,7 @@ mod inner {
         }
 
         for ret in tokio::try_join!(auto_channel_handler, telegram_handler, user_tracker.wait(),)
-            .map_err(|e| anyhow!("try_join! failed: {:?}", e))?
+            .map_err(|e| anyhow!("[{}] try_join! failed: {:?}", &thread_id, e))?
             .to_vec()
         {
             ret?;
@@ -170,6 +178,7 @@ mod inner {
         config: Config,
         notifier: Arc<Notify>,
         barrier: Arc<Barrier>,
+        thread_id: String,
     ) -> ClientResult<()> {
         // Await all client ready
         barrier.wait().await;
@@ -177,6 +186,7 @@ mod inner {
             try_init_connection(&config, config.server().server_id()).await?,
             config,
             notifier,
+            thread_id,
         )
         .await
     }
@@ -252,7 +262,6 @@ mod controller {
     use std::future::Future;
     use std::path::Path;
     use std::pin::Pin;
-    use std::rc::Rc;
     use std::sync::Arc;
     use tokio::sync::{Barrier, Notify};
     use tokio::task::JoinHandle;
@@ -280,7 +289,7 @@ mod controller {
             let configures = paths
                 .into_iter()
                 .map(|path| {
-                    let thread_id = Rc::new(uuid::Uuid::new_v4().to_string());
+                    let thread_id = uuid::Uuid::new_v4().to_string();
                     let ret = (
                         thread_id.clone(),
                         Config::try_from(path.as_ref())
@@ -296,10 +305,9 @@ mod controller {
 
             for (thread_id, config) in configures {
                 let notify = notify.clone();
-                let thread_id = Rc::into_inner(thread_id).unwrap();
                 let barrier = barrier.clone();
                 v.push(Controller::new(Box::pin(async move {
-                    if let Err(e) = bootstrap(config, notify, barrier).await {
+                    if let Err(e) = bootstrap(config, notify, barrier, thread_id.clone()).await {
                         error!("Got error in {}: {:?}", thread_id, e);
                     }
                     Ok(())
