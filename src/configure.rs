@@ -1,6 +1,5 @@
 pub mod config {
     use crate::plugins::kv::current::KVMap;
-    use crate::DEFAULT_LEVELDB_LOCATION;
     use anyhow::anyhow;
     use serde_derive::Deserialize;
     use std::collections::HashMap;
@@ -78,6 +77,7 @@ pub mod config {
         channel_id: Numbers,
         privilege_group_id: i64,
         redis_server: Option<String>,
+        #[cfg(feature = "leveldb")]
         leveldb: Option<String>,
         ignore_user: Option<Vec<String>>,
         whitelist_ip: Option<Vec<String>>,
@@ -98,8 +98,6 @@ pub mod config {
             self.privilege_group_id
         }
 
-        #[deprecated]
-        #[allow(unused)]
         pub fn redis_server(&self) -> String {
             if let Some(server) = &self.redis_server {
                 server.clone()
@@ -108,6 +106,7 @@ pub mod config {
             }
         }
 
+        #[cfg(feature = "leveldb")]
         pub async fn get_kv_map(&self) -> anyhow::Result<KVMap> {
             if let Some(redis) = &self.redis_server {
                 return KVMap::new_redis(redis).await;
@@ -116,9 +115,14 @@ pub mod config {
             KVMap::new_leveldb(if let Some(db) = &self.leveldb {
                 db
             } else {
-                DEFAULT_LEVELDB_LOCATION
+                crate::DEFAULT_LEVELDB_LOCATION;
             })
             .await
+        }
+
+        #[cfg(not(feature = "leveldb"))]
+        pub async fn get_kv_map(&self) -> anyhow::Result<KVMap> {
+            KVMap::new_redis(&self.redis_server()).await
         }
 
         pub fn ignore_user_name(&self) -> Vec<String> {

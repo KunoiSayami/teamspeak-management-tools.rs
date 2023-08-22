@@ -7,7 +7,6 @@ use crate::socketlib::SocketConn;
 use crate::{AUTO_CHANNEL_NICKNAME_OVERRIDE, DEFAULT_AUTO_CHANNEL_NICKNAME};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
-use redis::AsyncCommands;
 use std::time::Duration;
 use tap::{Tap, TapFallible};
 use tokio::sync::mpsc;
@@ -138,12 +137,11 @@ pub async fn auto_channel_staff(
     config: Config,
     thread_id: String,
 ) -> anyhow::Result<()> {
-    let redis = redis::Client::open(config.server().redis_server())
-        .map_err(|e| anyhow!("Connect redis server error! {:?}", e))?;
-    let mut redis_conn = redis
-        .get_async_connection()
+    let mut kv_map = config
+        .server()
+        .get_kv_map()
         .await
-        .map_err(|e| anyhow!("Get redis connection error: {:?}", e))?;
+        .map_err(|e| anyhow!("Got error while create KV map: {:?}", e))?;
 
     let monitor_channels = config.server().channels();
     let privilege_group = config.server().privilege_group_id();
@@ -192,8 +190,8 @@ pub async fn auto_channel_staff(
                                 *channel_id,
                             );
 
-                            redis_conn
-                                .del::<_, i64>(&key)
+                            kv_map
+                                .delete(&key)
                                 .await
                                 .tap(|_| trace!("[{}] Deleted", thread_id))
                                 .tap_err(|e| {
@@ -257,7 +255,14 @@ pub async fn auto_channel_staff(
                 pid = client.channel_id()
             );
 
-            let ret: Option<i64> = redis_conn.get(&key).await?;
+            let ret: Option<i64> = kv_map
+                .get(&key)
+                .await?
+                .map(|v| v.parse())
+                .transpose()
+                .tap_err(|e| error!("[{}] Unable to parse result: {:?}", thread_id, e))
+                .ok()
+                .flatten();
             let create_new = ret.is_none();
             let target_channel = if create_new {
                 let mut name = format!("{}'s channel", client.client_nickname());
@@ -326,7 +331,7 @@ pub async fn auto_channel_staff(
                 Ok(ret) => ret,
                 Err(e) => {
                     if e.code() == 768 {
-                        redis_conn.del(&key).await?;
+                        kv_map.delete(&key).await?;
                         skip_sleep = true;
                         continue;
                     }
@@ -348,7 +353,7 @@ pub async fn auto_channel_staff(
                 conn.move_client(who_am_i.client_id(), client.channel_id())
                     .await
                     .map_err(|e| anyhow!("Unable move self out of channel. {:?}", e))?;
-                redis_conn.set(&key, target_channel).await?;
+                kv_map.set(&key, target_channel).await?;
             }
 
             info!("Move {} to {}", client.client_nickname(), target_channel);
