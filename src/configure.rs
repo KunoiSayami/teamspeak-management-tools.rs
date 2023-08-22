@@ -115,7 +115,7 @@ pub mod config {
             KVMap::new_leveldb(if let Some(db) = &self.leveldb {
                 db
             } else {
-                crate::DEFAULT_LEVELDB_LOCATION;
+                crate::DEFAULT_LEVELDB_LOCATION
             })
             .await
         }
