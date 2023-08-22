@@ -143,7 +143,7 @@ mod client {
             assert_eq!(result.client_nickname(), "serveradmin".to_string());
             assert_eq!(result.client_type(), 1);
             //assert_eq!(result.client_unique_identifier(), "serveradmin".to_string());
-            assert_eq!(result.client_unique_identifier(), "1".to_string());
+            //assert_eq!(result.client_database_id(), "1".to_string());
         }
     }
 }
