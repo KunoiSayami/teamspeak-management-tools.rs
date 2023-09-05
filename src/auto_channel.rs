@@ -25,16 +25,11 @@ pub struct AutoChannelInstance {
 
 impl AutoChannelInstance {
     pub async fn send_terminate(&self) -> anyhow::Result<()> {
-        match self.sender {
-            Some(ref sender) => sender
-                .send(AutoChannelEvent::Terminate)
-                .await
-                .map_err(|_| anyhow!("Got error while send terminate to auto channel staff")),
-            None => Ok(()),
-        }
+        self.send_signal(AutoChannelEvent::Terminate)
+            .await
+            .map(|_| ())
     }
 
-    // TODO: Optimize
     async fn send_signal(&self, signal: AutoChannelEvent) -> anyhow::Result<bool> {
         match self.sender {
             Some(ref sender) => sender

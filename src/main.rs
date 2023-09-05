@@ -35,6 +35,7 @@ async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Res
             // First ctrl_c signal
             notify.notify_waiters();
             tokio::signal::ctrl_c().await.unwrap();
+            // Notify again
             notify.notify_waiters();
             tokio::signal::ctrl_c().await.unwrap();
             error!("Force exit!");
@@ -44,14 +45,21 @@ async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Res
         }
         ret = async move {
             let mut ret = Vec::new();
+            loop {
+                if controllers.iter().any(|x| x.is_finished()) {
+                    break
+                }
+                tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+            }
+            //tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
             for controller in controllers {
-                ret.push(controller.wait().await);
+                if controller.is_finished() {
+                    ret.push(controller.wait().await);
+                }
             };
             ret
         } => {
-            for sub_ret in ret.into_iter().collect::<Result<Vec<_>, _>>()? {
-                sub_ret?;
-            }
+            ret.into_iter().collect::<Result<Vec<_>, _>>()?;
         }
     }
 

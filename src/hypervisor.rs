@@ -278,6 +278,10 @@ mod controller {
             }
         }
 
+        pub fn is_finished(&self) -> bool {
+            self.join_handler.is_finished()
+        }
+
         pub async fn wait(self) -> Result<anyhow::Result<()>, tokio::task::JoinError> {
             self.join_handler.await
         }
@@ -286,6 +290,7 @@ mod controller {
             paths: Vec<P>,
             notify: Arc<Notify>,
         ) -> anyhow::Result<Vec<Controller>> {
+            // Generate uuid for configures
             let configures = paths
                 .into_iter()
                 .map(|path| {
@@ -308,7 +313,7 @@ mod controller {
                 let barrier = barrier.clone();
                 v.push(Controller::new(Box::pin(async move {
                     if let Err(e) = bootstrap(config, notify, barrier, thread_id.clone()).await {
-                        error!("Got error in {}: {:?}", thread_id, e);
+                        error!("In {}: {:?}", thread_id, e);
                     }
                     Ok(())
                 })));
