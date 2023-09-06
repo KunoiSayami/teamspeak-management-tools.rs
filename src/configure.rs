@@ -282,11 +282,18 @@ pub mod config {
 
         pub fn get_id(&self) -> String {
             format!(
-                "{}:{} {}",
-                self.raw_query.server(),
+                "{}:{}({})",
+                Self::parse_server(&self.raw_query.server()),
                 self.raw_query.port(),
                 self.server.server_id.unwrap_or(1)
             )
+        }
+
+        fn parse_server(server: &str) -> &str {
+            if server.eq("localhost") || server.eq("::1") || server.eq("127.0.0.1") {
+                return "";
+            }
+            server
         }
 
         pub fn mute_porter(&self) -> &MutePorter {

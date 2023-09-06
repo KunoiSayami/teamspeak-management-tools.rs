@@ -219,7 +219,7 @@ pub async fn telegram_thread(
                         }
                     }
                 }
-                let payload = bot.send_message(ChatId(target), format!("[{}] {}", config_id, v.join("\n")));
+                let payload = bot.send_message(ChatId(target), format!("[{}]\n{}", config_id, v.join("\n")));
                 if let Err(e) = payload.send().await {
                     error!("[{}] Got error in send telegram message {:?}", thread_id, e);
                 }
