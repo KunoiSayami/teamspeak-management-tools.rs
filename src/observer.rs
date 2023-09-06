@@ -181,18 +181,53 @@ pub async fn telegram_thread(
         }
         return Ok(());
     }
+
+    let pool = concurrent_queue::ConcurrentQueue::unbounded();
+
     let bot = Bot::new(token).set_api_url(server.parse()?);
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
 
     let bot = bot.parse_mode(ParseMode::Html);
-    while let Some(cmd) = receiver.recv().await {
-        if let TelegramData::Terminate = cmd {
-            break;
-        }
-        let payload = bot.send_message(ChatId(target), format!("[{}] {}", config_id, cmd));
-        if let Err(e) = payload.send().await {
-            error!("[{}] Got error in send message {:?}", thread_id, e);
+
+    loop {
+        tokio::select! {
+            cmd = receiver.recv() => {
+                if let Some(cmd) = cmd {
+                    if let TelegramData::Terminate = cmd {
+                        break;
+                    }
+
+                    pool.push(cmd.to_string())
+                        .tap_err(|e| error!("[{}] Unable push string to queue: {:?}", thread_id, e))
+                        .ok();
+
+                } else {
+                    break
+                }
+            }
+            _ = interval.tick() => {
+                if pool.is_empty() {
+                    continue
+                }
+
+                let mut v = Vec::new();
+                while !pool.is_empty() {
+                    match pool.pop() {
+                        Ok(element) => v.push(element),
+                        Err(e) => {
+                            error!("[{}] Unexpected error in pop queue: {:?}", thread_id, e);
+                        }
+                    }
+                }
+                let payload = bot.send_message(ChatId(target), format!("[{}] {}", config_id, v.join("\n")));
+                if let Err(e) = payload.send().await {
+                    error!("[{}] Got error in send telegram message {:?}", thread_id, e);
+                }
+            }
         }
     }
+
+    pool.close();
     debug!("[{}] Send message daemon exiting...", thread_id);
     Ok(())
 }

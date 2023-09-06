@@ -51,7 +51,10 @@ async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Res
                 }
                 tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
             }
-            //tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+
+            // Wait up to 300 micro secs
+            tokio::time::sleep(tokio::time::Duration::from_micros(300)).await;
+
             for controller in controllers {
                 if controller.is_finished() {
                     ret.push(controller.wait().await);
