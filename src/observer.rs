@@ -1,8 +1,8 @@
 use crate::auto_channel::AutoChannelInstance;
 use crate::configure::Config;
-use crate::datastructures::EventHelperTrait;
-use crate::datastructures::{NotifyClientEnterView, NotifyClientLeftView};
 use crate::socketlib::SocketConn;
+use crate::types::EventHelperTrait;
+use crate::types::{NotifyClientEnterView, NotifyClientLeftView};
 use crate::{DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
@@ -234,11 +234,11 @@ pub async fn telegram_thread(
 
 mod processor {
     use super::{Arguments, TelegramData};
-    use crate::datastructures::{
+    use crate::socketlib::SocketConn;
+    use crate::types::{
         BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView,
         NotifyClientMovedView, NotifyTextMessage,
     };
-    use crate::socketlib::SocketConn;
     use anyhow::anyhow;
     use futures_util::FutureExt;
     use log::{error, info, trace, warn};

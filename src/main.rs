@@ -1,10 +1,10 @@
 mod auto_channel;
 mod configure;
-mod datastructures;
 mod hypervisor;
 mod observer;
 mod plugins;
 mod socketlib;
+mod types;
 
 use crate::hypervisor::{Controller, SYSTEMD_MODE};
 use clap::{arg, command};
@@ -44,6 +44,7 @@ async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Res
             unreachable!()
         }
         ret = async move {
+            // Check if any thread has been exited
             let mut ret = Vec::new();
             loop {
                 if controllers.iter().any(|x| x.is_finished()) {

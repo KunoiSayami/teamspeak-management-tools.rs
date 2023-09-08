@@ -74,7 +74,7 @@ async fn check_database(conn: &mut SqliteConnection) -> DatabaseResult<bool> {
 }
 
 pub mod types {
-    use crate::datastructures::EventHelperTrait;
+    use crate::types::EventHelperTrait;
     use async_trait::async_trait;
     use tokio::sync::mpsc;
 

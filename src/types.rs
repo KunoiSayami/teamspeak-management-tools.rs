@@ -129,8 +129,8 @@ mod client {
 
     #[cfg(test)]
     mod test {
-        use crate::datastructures::client::Client;
-        use crate::datastructures::FromQueryString;
+        use crate::types::client::Client;
+        use crate::types::FromQueryString;
 
         const TEST_STRING: &str = "clid=8 cid=1 client_database_id=1 client_nickname=serveradmin client_type=1 client_unique_identifier=serveradmin";
 
@@ -149,7 +149,7 @@ mod client {
 }
 
 pub mod notifies {
-    use crate::datastructures::FromQueryString;
+    use crate::types::FromQueryString;
     use serde_derive::Deserialize;
 
     #[derive(Copy, Clone, Debug)]
@@ -336,7 +336,7 @@ pub mod notifies {
 }
 
 pub mod query_status {
-    use crate::datastructures::{QueryError, QueryResult};
+    use crate::types::{QueryError, QueryResult};
     use anyhow::anyhow;
     use serde_derive::Deserialize;
 
@@ -538,7 +538,7 @@ pub mod ban_entry {
 }
 
 mod status_result {
-    use crate::datastructures::QueryStatus;
+    use crate::types::QueryStatus;
     use anyhow::Error;
     use std::fmt::{Display, Formatter};
 

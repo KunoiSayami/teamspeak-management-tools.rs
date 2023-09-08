@@ -5,14 +5,14 @@ mod inner {
     use crate::auto_channel::{auto_channel_staff, AutoChannelInstance};
     use crate::configure::config::RawQuery;
     use crate::configure::Config;
-    #[cfg(feature = "tracker")]
-    use crate::datastructures::EventHelperTrait;
-    #[cfg(not(feature = "tracker"))]
-    use crate::datastructures::PseudoEventHelper;
     use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
     #[cfg(feature = "tracker")]
     use crate::plugins::tracker::DatabaseHelper;
     use crate::socketlib::SocketConn;
+    #[cfg(feature = "tracker")]
+    use crate::types::EventHelperTrait;
+    #[cfg(not(feature = "tracker"))]
+    use crate::types::PseudoEventHelper;
     use anyhow::anyhow;
     use futures_util::TryFutureExt;
     use log::{error, info, trace, warn};

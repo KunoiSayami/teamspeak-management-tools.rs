@@ -1,7 +1,7 @@
-use crate::datastructures::{
+use crate::types::{
     Client, ClientInfo, CreateChannel, DatabaseId, QueryError, QueryResult, ServerInfo, WhoAmI,
 };
-use crate::datastructures::{FromQueryString, QueryStatus};
+use crate::types::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
 use log::{error, warn};
 use std::time::Duration;
