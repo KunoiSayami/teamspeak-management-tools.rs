@@ -1,6 +1,6 @@
 [package]
 name = "teamspeak-management-tools"
-version = "4.1.1"
+version = "4.1.2"
 edition = "2021"
 
 [dependencies]
@@ -8,7 +8,7 @@ anyhow = "1"
 async-trait = "0.1.68"
 chrono = "0.4.19"
 clap = { version = "4", features = ["cargo"] }
-concurrent-queue = "^2.2"
+#concurrent-queue = "^2.2"
 country-emoji = "^0.2"
 env_logger = "0.10"
 futures-util = "0.3"

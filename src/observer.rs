@@ -1,7 +1,7 @@
 use crate::auto_channel::AutoChannelInstance;
 use crate::configure::Config;
 use crate::socketlib::SocketConn;
-use crate::types::EventHelperTrait;
+use crate::types::{EventHelperTrait, Queue};
 use crate::types::{NotifyClientEnterView, NotifyClientLeftView};
 use crate::{DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
@@ -182,7 +182,7 @@ pub async fn telegram_thread(
         return Ok(());
     }
 
-    let pool = concurrent_queue::ConcurrentQueue::unbounded();
+    let mut pool = Queue::new();
 
     let bot = Bot::new(token).set_api_url(server.parse()?);
     let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -197,9 +197,7 @@ pub async fn telegram_thread(
                         break;
                     }
 
-                    pool.push(cmd.to_string())
-                        .tap_err(|e| error!("[{}] Unable push string to queue: {:?}", thread_id, e))
-                        .ok();
+                    pool.push(cmd.to_string());
 
                 } else {
                     break
@@ -213,10 +211,8 @@ pub async fn telegram_thread(
                 let mut v = Vec::new();
                 while !pool.is_empty() {
                     match pool.pop() {
-                        Ok(element) => v.push(element),
-                        Err(e) => {
-                            error!("[{}] Unexpected error in pop queue: {:?}", thread_id, e);
-                        }
+                        Some(element) => v.push(element),
+                        None => break,
                     }
                 }
                 let payload = bot.send_message(ChatId(target), format!("[{}]\n{}", config_id, v.join("\n")));
@@ -227,7 +223,6 @@ pub async fn telegram_thread(
         }
     }
 
-    pool.close();
     debug!("[{}] Send message daemon exiting...", thread_id);
     Ok(())
 }
