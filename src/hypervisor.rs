@@ -5,10 +5,11 @@ mod inner {
     use crate::auto_channel::{auto_channel_staff, AutoChannelInstance};
     use crate::configure::config::RawQuery;
     use crate::configure::Config;
-    use crate::observer::{observer_thread, telegram_thread, PrivateMessageRequest};
+    use crate::observer::{observer_thread, PrivateMessageRequest};
     #[cfg(feature = "tracker")]
     use crate::plugins::tracker::DatabaseHelper;
     use crate::socketlib::SocketConn;
+    use crate::telegram::{BindTelegramHelper, TelegramHelper};
     #[cfg(feature = "tracker")]
     use crate::types::EventHelperTrait;
     #[cfg(not(feature = "tracker"))]
@@ -77,12 +78,13 @@ mod inner {
         config: Config,
         notifier: Arc<Notify>,
         thread_id: String,
+        telegram_sender: BindTelegramHelper,
     ) -> ClientResult<()> {
         let (observer_connection, auto_channel_connection) = conn;
 
         let (private_message_sender, private_message_receiver) = mpsc::channel(4096);
         let (trigger_sender, trigger_receiver) = mpsc::channel(1024);
-        let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
+        //let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
 
         //let thread_id = Rc::new(thread_id);
 
@@ -114,15 +116,6 @@ mod inner {
             auto_channel_instance,
             config.clone(),
             Box::new(tracker_controller.clone()),
-            thread_id.clone(),
-        ));
-
-        let telegram_handler = tokio::spawn(telegram_thread(
-            config.telegram().api_key().to_string(),
-            config.telegram().target(),
-            config.telegram().api_server(),
-            telegram_receiver,
-            config.get_id(),
             thread_id.clone(),
         ));
 
@@ -164,7 +157,7 @@ mod inner {
             }
         }
 
-        for ret in tokio::try_join!(auto_channel_handler, telegram_handler, user_tracker.wait(),)
+        for ret in tokio::try_join!(auto_channel_handler, user_tracker.wait(),)
             .map_err(|e| anyhow!("[{}] try_join! failed: {:?}", &thread_id, e))?
             .to_vec()
         {
@@ -179,14 +172,17 @@ mod inner {
         notifier: Arc<Notify>,
         barrier: Arc<Barrier>,
         thread_id: String,
+        telegram: TelegramHelper,
     ) -> ClientResult<()> {
         // Await all client ready
         barrier.wait().await;
+        let config_id = config.get_id();
         watchdog(
             try_init_connection(&config, config.server().server_id()).await?,
             config,
             notifier,
             thread_id,
+            telegram.into_bind(config_id),
         )
         .await
     }
@@ -256,6 +252,7 @@ mod types {
 mod controller {
     use super::inner::bootstrap;
     use crate::configure::Config;
+    use crate::telegram::telegram_bootstrap;
     use anyhow::anyhow;
     use log::{error, info};
     use std::fmt::Debug;
@@ -289,7 +286,7 @@ mod controller {
         pub async fn bootstrap_controller<P: AsRef<Path> + Debug>(
             paths: Vec<P>,
             notify: Arc<Notify>,
-        ) -> anyhow::Result<Vec<Controller>> {
+        ) -> anyhow::Result<(Vec<Controller>, JoinHandle<anyhow::Result<()>>)> {
             // Generate uuid for configures
             let configures = paths
                 .into_iter()
@@ -308,18 +305,23 @@ mod controller {
 
             let mut v = Vec::new();
 
+            let (handler, telegram_helper) = telegram_bootstrap(&configures, notify.clone())?;
+
             for (thread_id, config) in configures {
                 let notify = notify.clone();
                 let barrier = barrier.clone();
+                let helper = telegram_helper.clone();
                 v.push(Controller::new(Box::pin(async move {
-                    if let Err(e) = bootstrap(config, notify, barrier, thread_id.clone()).await {
+                    if let Err(e) =
+                        bootstrap(config, notify, barrier, thread_id.clone(), helper).await
+                    {
                         error!("In {}: {:?}", thread_id, e);
                     }
                     Ok(())
                 })));
             }
 
-            Ok(v)
+            Ok((v, handler))
         }
     }
 }

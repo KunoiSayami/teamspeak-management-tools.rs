@@ -4,6 +4,7 @@ mod hypervisor;
 mod observer;
 mod plugins;
 mod socketlib;
+mod telegram;
 mod types;
 
 use crate::hypervisor::{Controller, SYSTEMD_MODE};
@@ -25,7 +26,8 @@ pub static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
 async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Result<()> {
     let notify = Arc::new(Notify::new());
 
-    let controllers = Controller::bootstrap_controller(configs, notify.clone()).await?;
+    let (controllers, telegram_handler) =
+        Controller::bootstrap_controller(configs, notify.clone()).await?;
 
     SYSTEMD_MODE.set(systemd_mode).unwrap();
 
@@ -67,6 +69,7 @@ async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Res
         }
     }
 
+    telegram_handler.await??;
     Ok(())
 }
 

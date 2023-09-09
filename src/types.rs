@@ -688,10 +688,6 @@ mod queue {
         pub fn is_empty(&self) -> bool {
             self.inner.is_empty()
         }
-        pub fn pop(&mut self) -> Option<T> {
-            self.inner.pop_front()
-        }
-
         pub fn push(&mut self, element: T) {
             self.inner.push_back(element)
         }
@@ -700,6 +696,10 @@ mod queue {
             Self {
                 inner: VecDeque::new(),
             }
+        }
+
+        pub fn get_vec(&mut self) -> Vec<T> {
+            std::mem::take(&mut self.inner).into()
         }
     }
 }

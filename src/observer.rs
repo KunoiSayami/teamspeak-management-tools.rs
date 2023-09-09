@@ -1,18 +1,14 @@
 use crate::auto_channel::AutoChannelInstance;
 use crate::configure::Config;
 use crate::socketlib::SocketConn;
-use crate::types::{EventHelperTrait, Queue};
-use crate::types::{NotifyClientEnterView, NotifyClientLeftView};
+use crate::types::EventHelperTrait;
 use crate::{DEFAULT_OBSERVER_NICKNAME, OBSERVER_NICKNAME_OVERRIDE};
 use anyhow::anyhow;
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::fmt::Formatter;
 use std::time::Duration;
 use tap::{TapFallible, TapOptional};
-use teloxide::prelude::*;
-use teloxide::types::ParseMode;
 use tokio::sync::mpsc;
 
 pub enum PrivateMessageRequest {
@@ -22,32 +18,11 @@ pub enum PrivateMessageRequest {
     Terminate,
 }
 
-pub enum TelegramData {
-    Enter(String, i64, String, String, String),
-    Left(String, NotifyClientLeftView, String),
-    Terminate,
-}
-
-impl TelegramData {
-    fn from_left(time: String, view: &NotifyClientLeftView, nickname: String) -> Self {
-        Self::Left(time, view.clone(), nickname)
-    }
-    fn from_enter(time: String, view: NotifyClientEnterView) -> Self {
-        Self::Enter(
-            time,
-            view.client_id(),
-            view.client_unique_identifier().to_string(),
-            view.client_nickname().to_string(),
-            view.client_country().to_string(),
-        )
-    }
-}
-
 struct Arguments<'a> {
     ignore_list: &'a [String],
     monitor_channel: &'a AutoChannelInstance,
     whitelist_ip: &'a [String],
-    telegram_sender: &'a mpsc::Sender<TelegramData>,
+    telegram_sender: &'a BindTelegramHelper,
     current_time: &'a str,
     tracker_controller: &'a (dyn EventHelperTrait + Send + Sync),
     thread_id: &'a str,
@@ -63,7 +38,7 @@ impl<'a> Arguments<'a> {
     pub fn whitelist_ip(&self) -> &'a [String] {
         self.whitelist_ip
     }
-    pub fn telegram_sender(&self) -> &'a mpsc::Sender<TelegramData> {
+    pub fn telegram_sender(&self) -> &'a BindTelegramHelper {
         self.telegram_sender
     }
     pub fn current_time(&self) -> &'a str {
@@ -82,7 +57,7 @@ impl<'a> Arguments<'a> {
         ignore_list: &'a [String],
         monitor_channel: &'a AutoChannelInstance,
         whitelist_ip: &'a [String],
-        telegram_sender: &'a mpsc::Sender<TelegramData>,
+        telegram_sender: &'a BindTelegramHelper,
         current_time: &'a str,
         tracker_controller: &'a (dyn EventHelperTrait + Send + Sync),
         thread_id: &'a str,
@@ -99,136 +74,8 @@ impl<'a> Arguments<'a> {
     }
 }
 
-impl std::fmt::Display for TelegramData {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            TelegramData::Enter(time, client_id, client_identifier, nickname, country) => {
-                write!(
-                    f,
-                    "[{}] <b>{}</b>(<code>{}</code>:{})[{}] joined",
-                    time,
-                    nickname,
-                    client_identifier,
-                    client_id,
-                    country_emoji::flag(country).unwrap_or_else(|| country.to_string())
-                )
-            }
-            TelegramData::Left(time, view, nickname) => match view.reason_id() {
-                8 => {
-                    if view.reason().is_empty() {
-                        write!(
-                            f,
-                            "[{}] <b>{}</b>({}) left",
-                            time,
-                            nickname,
-                            view.client_id()
-                        )
-                    } else {
-                        write!(
-                            f,
-                            "[{}] <b>{}</b>({}) left ({})",
-                            time,
-                            nickname,
-                            view.client_id(),
-                            view.reason()
-                        )
-                    }
-                }
-                3 => write!(
-                    f,
-                    "[{}] <b>{}</b>({}) connection lost #timeout",
-                    time,
-                    nickname,
-                    view.client_id()
-                ),
-                5 | 6 => {
-                    write!(f,
-                           "[{time}] <b>{nickname}</b>({client_id}) was #{operation} by <b>{invoker}</b>(<code>{invoker_uid}</code>){reason}",
-                           time = time,
-                           nickname = nickname,
-                           operation = if view.reason_id() == 5 { "kicked" } else { "banned" },
-                           client_id = view.client_id(),
-                           invoker = view.invoker_name(),
-                           invoker_uid = view.invoker_uid(),
-                           reason = if view.reason().is_empty() {
-                               " with no reason".to_string()
-                           } else {
-                               format!(": {}", view.reason())
-                           }
-                    )
-                }
-                _ => unreachable!("Got unexpected left message: {:?}", view),
-            },
-            TelegramData::Terminate => unreachable!(),
-        }
-    }
-}
-
-pub async fn telegram_thread(
-    token: String,
-    target: i64,
-    server: String,
-    mut receiver: mpsc::Receiver<TelegramData>,
-    config_id: String,
-    thread_id: String,
-) -> anyhow::Result<()> {
-    if token.is_empty() {
-        info!("Token is empty, skipped all send message request. Send to telegram disabled.");
-        while let Some(cmd) = receiver.recv().await {
-            if let TelegramData::Terminate = cmd {
-                break;
-            }
-        }
-        return Ok(());
-    }
-
-    let mut pool = Queue::new();
-
-    let bot = Bot::new(token).set_api_url(server.parse()?);
-    let mut interval = tokio::time::interval(Duration::from_secs(1));
-
-    let bot = bot.parse_mode(ParseMode::Html);
-
-    loop {
-        tokio::select! {
-            cmd = receiver.recv() => {
-                if let Some(cmd) = cmd {
-                    if let TelegramData::Terminate = cmd {
-                        break;
-                    }
-
-                    pool.push(cmd.to_string());
-
-                } else {
-                    break
-                }
-            }
-            _ = interval.tick() => {
-                if pool.is_empty() {
-                    continue
-                }
-
-                let mut v = Vec::new();
-                while !pool.is_empty() {
-                    match pool.pop() {
-                        Some(element) => v.push(element),
-                        None => break,
-                    }
-                }
-                let payload = bot.send_message(ChatId(target), format!("[{}]\n{}", config_id, v.join("\n")));
-                if let Err(e) = payload.send().await {
-                    error!("[{}] Got error in send telegram message {:?}", thread_id, e);
-                }
-            }
-        }
-    }
-
-    debug!("[{}] Send message daemon exiting...", thread_id);
-    Ok(())
-}
-
 mod processor {
-    use super::{Arguments, TelegramData};
+    use super::Arguments;
     use crate::socketlib::SocketConn;
     use crate::types::{
         BanEntry, FromQueryString, NotifyClientEnterView, NotifyClientLeftView,
@@ -238,7 +85,7 @@ mod processor {
     use futures_util::FutureExt;
     use log::{error, info, trace, warn};
     use std::collections::HashMap;
-    use tap::{Tap, TapFallible, TapOptional};
+    use tap::{Tap, TapOptional};
 
     type Result = anyhow::Result<()>;
     pub(super) struct Processor;
@@ -276,16 +123,11 @@ mod processor {
                     }),
                 argument
                     .telegram_sender()
-                    .send(TelegramData::from_enter(
-                        argument.current_time().to_string(),
-                        view.clone()
-                    ))
-                    .map(|result| result
-                        .tap_err(|_| error!(
-                            "[{}] Got error while send data to telegram",
-                            argument.thread_id()
-                        ))
-                        .ok()),
+                    .send_enter(argument.current_time().to_string(), &view)
+                    .map(|result| result.tap_none(|| error!(
+                        "[{}] Got error while send data to telegram",
+                        argument.thread_id()
+                    ))),
                 async {
                     #[cfg(feature = "tracker")]
                     argument
@@ -328,19 +170,18 @@ mod processor {
             }
             argument
                 .telegram_sender()
-                .send(TelegramData::from_left(
+                .send_left(
                     argument.current_time().to_string(),
                     &view,
                     nickname.0.clone(),
-                ))
+                )
                 .await
-                .tap_err(|_| {
+                .tap_none(|| {
                     error!(
                         "[{}] Got error while send data to telegram",
                         argument.thread_id()
                     )
-                })
-                .ok();
+                });
             argument
                 .tracker_controller()
                 .insert(
@@ -428,6 +269,7 @@ mod processor {
         }
     }
 }
+use crate::telegram::BindTelegramHelper;
 use processor::Processor;
 
 async fn staff(
@@ -463,7 +305,7 @@ async fn staff(
 pub async fn observer_thread(
     mut conn: SocketConn,
     mut recv: mpsc::Receiver<PrivateMessageRequest>,
-    telegram_sender: mpsc::Sender<TelegramData>,
+    telegram_sender: BindTelegramHelper,
     monitor_channel: AutoChannelInstance,
     config: Config,
     tracker_controller: Box<dyn EventHelperTrait + Send + Sync>,
@@ -602,10 +444,5 @@ pub async fn observer_thread(
         .tap_err(|e| error!("[{}] {:?}", thread_id, e))
         .ok();
 
-    telegram_sender
-        .send(TelegramData::Terminate)
-        .await
-        .tap_err(|_| error!("[{}] Got error while send terminate signal", thread_id))
-        .ok();
     Ok(())
 }
