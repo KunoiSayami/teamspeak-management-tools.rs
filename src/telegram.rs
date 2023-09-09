@@ -100,8 +100,8 @@ mod types {
     }
 
     impl CombineData {
-        pub fn new(config: String, data: TelegramData) -> Self {
-            Self::Send(config, data)
+        pub fn new(config_id: String, data: TelegramData) -> Self {
+            Self::Send(config_id, data)
         }
 
         /*pub fn terminate() -> Self {

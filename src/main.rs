@@ -9,7 +9,7 @@ mod types;
 
 use crate::hypervisor::{Controller, SYSTEMD_MODE};
 use clap::{arg, command};
-use log::{error, LevelFilter};
+use log::{error, info, LevelFilter};
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -26,10 +26,10 @@ pub static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
 async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Result<()> {
     let notify = Arc::new(Notify::new());
 
+    SYSTEMD_MODE.set(systemd_mode).unwrap();
+
     let (controllers, telegram_handler) =
         Controller::bootstrap_controller(configs, notify.clone()).await?;
-
-    SYSTEMD_MODE.set(systemd_mode).unwrap();
 
     tokio::select! {
         _ = async {
@@ -116,6 +116,7 @@ fn main() -> anyhow::Result<()> {
             .set(nickname.to_string())
             .unwrap();
     }
+    info!("Version: {}", env!("CARGO_PKG_VERSION"));
 
     let configure_paths = matches.get_many::<String>("CONFIG_FILE");
     let configure = configure_paths.unwrap().map(|v| v.to_string()).collect();
