@@ -215,7 +215,7 @@ mod types {
 mod thread {
     use super::types::{CombineData, TelegramBot, TelegramHelper};
     use crate::configure::Config;
-    use crate::types::Queue;
+    use crate::types::MessageQueue;
     use anyhow::anyhow;
     use log::{debug, error, info};
     use std::collections::HashMap;
@@ -245,7 +245,7 @@ mod thread {
                 )
                 .map_err(|e| anyhow!("Parse error: {:?}", e))?,
             );
-            pool_map.insert(config_id, Queue::new());
+            pool_map.insert(config_id, MessageQueue::new());
         }
         let (sender, receiver) = TelegramHelper::new();
         let handler = tokio::spawn(telegram_thread(receiver, bot_map, pool_map, notifier));
@@ -254,7 +254,7 @@ mod thread {
     async fn telegram_thread(
         mut receiver: mpsc::Receiver<CombineData>,
         bot_map: HashMap<String, TelegramBot>,
-        mut pool_map: HashMap<String, Queue<String>>,
+        mut pool_map: HashMap<String, MessageQueue<String>>,
         notifier: Arc<Notify>,
     ) -> anyhow::Result<()> {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
@@ -264,7 +264,7 @@ mod thread {
                     if let Some(cmd) = cmd {
                         match cmd {
                             CombineData::Send(config_id, data) => {
-                                if let Some(q) =  pool_map.get_mut(&config_id) {
+                                if let Some(ref mut q) =  pool_map.get_mut(&config_id) {
                                     q.push(data.to_string());
                                 }
                             }

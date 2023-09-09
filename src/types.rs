@@ -674,32 +674,27 @@ mod pseudo_event_helper {
 }
 
 mod queue {
-    use std::collections::VecDeque;
 
     #[derive(Clone, Debug, Default, Eq, PartialEq)]
-    pub struct Queue<T> {
-        inner: VecDeque<T>,
-    }
+    pub struct MessageQueue<T>(Vec<T>);
 
-    impl<T> Queue<T> {
+    impl<T> MessageQueue<T> {
         /*pub fn len(&self) -> usize {
             self.inner.len()
         }*/
         pub fn is_empty(&self) -> bool {
-            self.inner.is_empty()
+            self.0.is_empty()
         }
         pub fn push(&mut self, element: T) {
-            self.inner.push_back(element)
+            self.0.push(element)
         }
 
         pub fn new() -> Self {
-            Self {
-                inner: VecDeque::new(),
-            }
+            Self(Vec::new())
         }
 
         pub fn get_vec(&mut self) -> Vec<T> {
-            std::mem::take(&mut self.inner).into()
+            std::mem::take(&mut self.0)
         }
     }
 }
@@ -714,7 +709,7 @@ pub use notifies::{
     NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView, NotifyTextMessage,
 };
 pub use pseudo_event_helper::EventHelperTrait;
-pub use queue::Queue;
+pub use queue::MessageQueue;
 
 #[cfg(not(feature = "tracker"))]
 pub use pseudo_event_helper::PseudoEventHelper;
