@@ -282,7 +282,7 @@ mod thread {
                 None => {
                     let mut m = HashMap::new();
                     m.insert(config_id, MessageQueue::<String>::new());
-                    pool_map.insert(bot_id.clone(), HashMap::new());
+                    pool_map.insert(bot_id.clone(), m);
                 }
             }
         }
@@ -324,39 +324,42 @@ mod thread {
                 }
 
                 // Tick by timer
-                _ = interval.tick() => {}
+                _ = interval.tick() => {
+                    for (bot_id, pool) in &mut pool_map {
+                        if pool.is_empty() {
+                            continue;
+                        }
+
+                        // For each, get message queue
+                        for (config_id, origin_queue) in pool {
+                            if origin_queue.is_empty() {
+                                continue;
+                            }
+                            let bot = bot_map.get(bot_id).expect(QUERY_BOT_ERROR);
+                            let mut sent = 0;
+                            for message in origin_queue.chunks(5) {
+                                if let Err(e) = bot
+                                    .send(format!("[{}]\n{}", config_id, message.join("\n")))
+                                    .send()
+                                    .await
+                                {
+                                    error!("Got error in send telegram message {:?}", e);
+                                    break;
+                                }
+                                sent += message.len();
+                            }
+                            if sent >= origin_queue.len() {
+                                origin_queue.clear()
+                            } else {
+                                origin_queue.drain(..sent);
+                            }
+                        }
+                    }
+                }
                 _ = notifier.notified() => {}
             }
         }
 
-        for (bot_id, pool) in &mut pool_map {
-            if pool.is_empty() {
-                continue;
-            }
-            for (config_id, origin_queue) in pool {
-                if origin_queue.is_empty() {
-                    continue;
-                }
-                let bot = bot_map.get(bot_id).unwrap();
-                let mut sent = 0;
-                for message in origin_queue.chunks(5) {
-                    if let Err(e) = bot
-                        .send(format!("[{}]\n{}", config_id, message.join("\n")))
-                        .send()
-                        .await
-                    {
-                        error!("Got error in send telegram message {:?}", e);
-                        break;
-                    }
-                    sent += message.len();
-                }
-                if sent >= origin_queue.len() {
-                    origin_queue.clear()
-                } else {
-                    origin_queue.drain(..sent);
-                }
-            }
-        }
         debug!("Send message daemon exiting...");
         Ok(())
     }
