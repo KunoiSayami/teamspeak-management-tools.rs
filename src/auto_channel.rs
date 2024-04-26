@@ -351,7 +351,12 @@ pub async fn auto_channel_staff(
                 kv_map.set(&key, target_channel).await?;
             }
 
-            info!("Move {} to {}", client.client_nickname(), target_channel);
+            info!(
+                "[{}] Move {} to {}",
+                thread_id,
+                client.client_nickname(),
+                target_channel
+            );
         }
     }
     conn.logout().await?;
