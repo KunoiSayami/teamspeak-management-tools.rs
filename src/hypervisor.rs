@@ -247,6 +247,12 @@ mod types {
             }
         }
     }
+
+    impl From<SubThreadExitReason> for anyhow::Error {
+        fn from(value: SubThreadExitReason) -> Self {
+            anyhow!("{:?}", value)
+        }
+    }
 }
 
 mod controller {
@@ -316,6 +322,7 @@ mod controller {
                         bootstrap(config, notify, barrier, thread_id.clone(), helper).await
                     {
                         error!("In {}: {:?}", thread_id, e);
+                        return Err(e.into());
                     }
                     Ok(())
                 })));
