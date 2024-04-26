@@ -4,7 +4,7 @@ pub mod v1 {
     use std::fmt::Display;
 
     enum KVTypes {
-        Redis(redis::aio::Connection),
+        Redis(redis::aio::MultiplexedConnection),
     }
 
     pub struct KVMap {
@@ -15,7 +15,7 @@ pub mod v1 {
         pub async fn new_redis(redis_server: &str) -> anyhow::Result<Self> {
             let redis = redis::Client::open(redis_server)
                 .map_err(|e| anyhow!("Connect redis server error! {:?}", e))?
-                .get_async_connection()
+                .get_multiplexed_async_connection()
                 .await
                 .map_err(|e| anyhow!("Get redis connection error: {:?}", e))?;
             Ok(Self {
