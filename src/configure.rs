@@ -1,7 +1,7 @@
 pub mod config {
     use crate::plugins::kv::current::KVMap;
     use anyhow::anyhow;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
     use std::collections::HashMap;
     use std::fmt::Debug;
     use std::fs::read_to_string;

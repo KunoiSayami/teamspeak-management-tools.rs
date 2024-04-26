@@ -10,7 +10,7 @@ pub trait FromQueryString: for<'de> Deserialize<'de> {
 
 pub mod whoami {
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct WhoAmI {
@@ -32,7 +32,7 @@ pub mod whoami {
 
 pub mod create_channel {
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct CreateChannel {
@@ -50,7 +50,7 @@ pub mod create_channel {
 /*
 pub mod.rs channel {
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     //#[allow(dead_code)]
     #[derive(Clone, Debug, Default, Deserialize)]
@@ -91,7 +91,7 @@ pub mod.rs channel {
 // TODO: Rename this
 mod client {
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Client {
@@ -150,7 +150,7 @@ mod client {
 
 pub mod notifies {
     use crate::types::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Copy, Clone, Debug)]
     pub struct ClientBasicInfo {
@@ -338,7 +338,7 @@ pub mod notifies {
 pub mod query_status {
     use crate::types::{QueryError, QueryResult};
     use anyhow::anyhow;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct WebQueryStatus {
@@ -411,7 +411,7 @@ pub mod query_status {
 
 pub mod server_info {
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct ServerInfo {
@@ -431,7 +431,7 @@ pub mod server_info {
 pub mod client_query_result {
 
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct DatabaseId {
@@ -455,7 +455,7 @@ pub mod client_query_result {
 
 pub mod ban_entry {
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
     use std::fmt::{Display, Formatter};
 
     #[derive(Clone, Debug, Deserialize)]
@@ -515,14 +515,14 @@ pub mod ban_entry {
         use super::BanEntry;
         use super::FromQueryString;
 
-        const TEST_STRING: &str = r#"banid=5 ip name uid=953jm1Ez3CvbAx7FKzb19zAQm48= mytsid 
-        lastnickname=باب created=1541834015 duration=0 invokername=AdminUser invokercldbid=2 
-        invokeruid=QuietTeamspeak= reason enforcements=0|banid=6 ip=1.1.1.1 
-        name uid mytsid lastnickname=باب created=1541834015 duration=0 invokername=AdminUser 
-        invokercldbid=2 invokeruid=QuietTeamspeak= reason enforcements=0|banid=12 
-        ip=114.5.1.4 name uid=+1145141919810 mytsid 
-        lastnickname=!\s\s\s\s\s\s\s\s\s\s\s\s\s\sValidname created=1549729305 duration=0 
-        invokername=AdminUser invokercldbid=2 invokeruid=QuietTeamspeak= 
+        const TEST_STRING: &str = r#"banid=5 ip name uid=953jm1Ez3CvbAx7FKzb19zAQm48= mytsid
+        lastnickname=باب created=1541834015 duration=0 invokername=AdminUser invokercldbid=2
+        invokeruid=QuietTeamspeak= reason enforcements=0|banid=6 ip=1.1.1.1
+        name uid mytsid lastnickname=باب created=1541834015 duration=0 invokername=AdminUser
+        invokercldbid=2 invokeruid=QuietTeamspeak= reason enforcements=0|banid=12
+        ip=114.5.1.4 name uid=+1145141919810 mytsid
+        lastnickname=!\s\s\s\s\s\s\s\s\s\s\s\s\s\sValidname created=1549729305 duration=0
+        invokername=AdminUser invokercldbid=2 invokeruid=QuietTeamspeak=
         reason=Spam enforcements=0"#;
 
         #[test]
@@ -591,7 +591,7 @@ mod status_result {
 
 mod client_info {
     use super::FromQueryString;
-    use serde_derive::Deserialize;
+    use serde::Deserialize;
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct ClientInfo {
@@ -675,26 +675,30 @@ mod pseudo_event_helper {
 
 mod queue {
 
-    #[derive(Clone, Debug, Default, Eq, PartialEq)]
+    #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
     pub struct MessageQueue<T>(Vec<T>);
+
+    impl<T: std::ops::Deref> std::ops::Deref for MessageQueue<T> {
+        type Target = Vec<T>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl<T: std::ops::DerefMut> std::ops::DerefMut for MessageQueue<T> {
+        fn deref_mut(&mut self) -> &mut Vec<T> {
+            &mut self.0
+        }
+    }
 
     impl<T> MessageQueue<T> {
         /*pub fn len(&self) -> usize {
             self.inner.len()
         }*/
-        pub fn is_empty(&self) -> bool {
-            self.0.is_empty()
-        }
-        pub fn push(&mut self, element: T) {
-            self.0.push(element)
-        }
 
         pub fn new() -> Self {
             Self(Vec::new())
-        }
-
-        pub fn get_vec(&mut self) -> Vec<T> {
-            std::mem::take(&mut self.0)
         }
     }
 }
