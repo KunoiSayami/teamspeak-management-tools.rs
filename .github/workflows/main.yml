@@ -29,7 +29,7 @@ jobs:
       RUST_BACKTRACE: full
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Environment
         run: |
@@ -54,13 +54,13 @@ jobs:
             mv target/release/teamspeak-management-tools target/release/$BINARY_NAME
           fi
           echo "bin=target/release/$BINARY_NAME" >> $GITHUB_OUTPUT
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v4.3.3
         with:
           name: ${{ matrix.job.binary_name }}
           path: target/release/${{ matrix.job.binary_name }}
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: ${{ steps.rename.outputs.bin }}
@@ -74,7 +74,7 @@ jobs:
       RUST_BACKTRACE: full
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - name: Environment
         run: |
           git submodule update --init --recursive
@@ -87,12 +87,12 @@ jobs:
         run: |
           cross build --target aarch64-unknown-linux-musl --profile release --features all
       - run: mv target/aarch64-unknown-linux-musl/release/teamspeak-management-tools target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4.3.3
         with:
           name: teamspeak-management-tools_linux_aarch64
           path: target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
