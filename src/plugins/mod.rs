@@ -1,10 +1,6 @@
-#[cfg(not(feature = "leveldb"))]
-pub mod kv;
 #[cfg(feature = "tracker")]
 pub mod tracker;
 
-#[cfg(feature = "leveldb")]
-pub mod kv_ng;
+mod storage;
 
-#[cfg(feature = "leveldb")]
-pub use kv_ng as kv;
+pub use storage::{Backend, KVMap};

@@ -16,8 +16,6 @@ use tokio::sync::Notify;
 
 const DEFAULT_OBSERVER_NICKNAME: &str = "observer";
 const DEFAULT_AUTO_CHANNEL_NICKNAME: &str = "auto channel";
-
-#[cfg(feature = "leveldb")]
 const DEFAULT_LEVELDB_LOCATION: &str = "./level.db";
 
 pub static OBSERVER_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();

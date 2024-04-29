@@ -811,6 +811,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "helper-generator"
+version = "0.2.1"
+source = "git+https://github.com/KunoiSayami/helper-generator.git#09deb94f326f4c44aeffc9d91d9a9943607f016e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.60",
+]
+
+[[package]]
 name = "hermit-abi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1635,7 +1645,6 @@ dependencies = [
  "integer-encoding",
  "rand",
  "snap",
- "tokio",
 ]
 
 [[package]]
@@ -2157,6 +2166,7 @@ dependencies = [
  "country-emoji",
  "env_logger",
  "futures-util",
+ "helper-generator",
  "kstool",
  "log",
  "once_cell",

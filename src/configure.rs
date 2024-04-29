@@ -1,11 +1,12 @@
 pub mod config {
-    use crate::plugins::kv::current::KVMap;
     use anyhow::anyhow;
     use serde::Deserialize;
     use std::collections::HashMap;
     use std::fmt::Debug;
     use std::fs::read_to_string;
     use std::path::Path;
+
+    use crate::plugins::{self, KVMap};
 
     #[derive(Clone, Debug, Deserialize)]
     #[serde(untagged)]
@@ -77,7 +78,6 @@ pub mod config {
         channel_id: Numbers,
         privilege_group_id: i64,
         redis_server: Option<String>,
-        #[cfg(feature = "leveldb")]
         leveldb: Option<String>,
         ignore_user: Option<Vec<String>>,
         whitelist_ip: Option<Vec<String>>,
@@ -120,9 +120,8 @@ pub mod config {
             .await
         }
 
-        #[cfg(not(feature = "leveldb"))]
-        pub async fn get_kv_map(&self) -> anyhow::Result<KVMap> {
-            KVMap::new_redis(&self.redis_server()).await
+        pub async fn init_kv_map(&self) -> anyhow::Result<(plugins::Backend, Box<dyn KVMap>)> {
+            plugins::Backend::new(self.redis_server.as_ref(), self.leveldb.as_ref()).await
         }
 
         pub fn ignore_user_name(&self) -> Vec<String> {
