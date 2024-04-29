@@ -356,7 +356,9 @@ mod thread {
                         }
                     }
                 }
-                _ = notifier.notified() => {}
+                _ = notifier.notified() => {
+                    break
+                }
             }
         }
 
