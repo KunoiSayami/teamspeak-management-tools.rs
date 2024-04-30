@@ -1,6 +1,7 @@
 use crate::configure::config::MutePorter;
 use crate::configure::Config;
 use crate::observer::PrivateMessageRequest;
+use crate::plugins::KVMap;
 use crate::socketlib::SocketConn;
 use crate::types::notifies::ClientBasicInfo;
 use crate::types::QueryResult;
@@ -131,13 +132,8 @@ pub async fn auto_channel_staff(
     private_message_sender: mpsc::Sender<PrivateMessageRequest>,
     config: Config,
     thread_id: String,
+    mut kv_map: Box<dyn KVMap>,
 ) -> anyhow::Result<()> {
-    let mut kv_map = config
-        .server()
-        .get_kv_map()
-        .await
-        .map_err(|e| anyhow!("Got error while create KV map: {:?}", e))?;
-
     let monitor_channels = config.server().channels();
     let privilege_group = config.server().privilege_group_id();
     let channel_permissions = config.channel_permissions();
@@ -186,7 +182,7 @@ pub async fn auto_channel_staff(
                             );
 
                             kv_map
-                                .delete(&key)
+                                .delete(key.to_string())
                                 .await
                                 .tap(|_| trace!("[{}] Deleted", thread_id))
                                 .tap_err(|e| {
@@ -243,6 +239,7 @@ pub async fn auto_channel_staff(
             {
                 continue;
             }
+            // TODO: May need add thread id
             let key = format!(
                 "ts_autochannel_{}_{server_id}_{pid}",
                 client.client_database_id(),
@@ -251,7 +248,7 @@ pub async fn auto_channel_staff(
             );
 
             let ret: Option<i64> = kv_map
-                .get(&key)
+                .get(key.clone())
                 .await?
                 .map(|v| v.parse())
                 .transpose()
@@ -326,7 +323,7 @@ pub async fn auto_channel_staff(
                 Ok(ret) => ret,
                 Err(e) => {
                     if e.code() == 768 {
-                        kv_map.delete(&key).await?;
+                        kv_map.delete(key.clone()).await?;
                         skip_sleep = true;
                         continue;
                     }
@@ -348,7 +345,7 @@ pub async fn auto_channel_staff(
                 conn.move_client(who_am_i.client_id(), client.channel_id())
                     .await
                     .map_err(|e| anyhow!("Unable move self out of channel. {:?}", e))?;
-                kv_map.set(&key, target_channel).await?;
+                kv_map.set(key.clone(), target_channel.to_string()).await?;
             }
 
             info!(

@@ -21,13 +21,13 @@ const DEFAULT_LEVELDB_LOCATION: &str = "./level.db";
 pub static OBSERVER_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
 pub static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
 
-async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Result<()> {
+async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()> {
     let notify = Arc::new(Notify::new());
 
     SYSTEMD_MODE.set(systemd_mode).unwrap();
 
-    let (controllers, telegram_handler) =
-        Controller::bootstrap_controller(configs, notify.clone()).await?;
+    let (kv_backend, controllers, telegram_handler) =
+        Controller::bootstrap_controller(config, notify.clone()).await?;
 
     tokio::select! {
         _ = async {
@@ -67,6 +67,8 @@ async fn start_services(configs: Vec<String>, systemd_mode: bool) -> anyhow::Res
         }
     }
 
+    kv_backend.disconnect().await?;
+
     telegram_handler.await??;
     Ok(())
 }
@@ -92,7 +94,7 @@ fn build_logger(count: u8) {
 fn main() -> anyhow::Result<()> {
     let matches = command!()
         .args(&[
-            arg!([CONFIG_FILE] ... "Override default configure file location")
+            arg!([CONFIG_FILE] "Override default configure file location")
                 .default_value("config.toml"),
             arg!(--systemd "Start in systemd mode, which enable wait if connect failed"),
             arg!(--"observer-name" [OBSERVER_NAME] "Override observer nickname"),
@@ -116,14 +118,16 @@ fn main() -> anyhow::Result<()> {
     }
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
 
-    let configure_paths = matches.get_many::<String>("CONFIG_FILE");
-    let configure = configure_paths.unwrap().map(|v| v.to_string()).collect();
+    let configure = matches.get_one::<String>("CONFIG_FILE").unwrap();
 
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(start_services(configure, matches.get_flag("systemd")))?;
+        .block_on(start_services(
+            configure.clone(),
+            matches.get_flag("systemd"),
+        ))?;
 
     Ok(())
 }

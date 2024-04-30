@@ -8,6 +8,7 @@ mod inner {
     use crate::observer::{observer_thread, PrivateMessageRequest};
     #[cfg(feature = "tracker")]
     use crate::plugins::tracker::DatabaseHelper;
+    use crate::plugins::KVMap;
     use crate::socketlib::SocketConn;
     use crate::telegram::{BindTelegramHelper, TelegramHelper};
     #[cfg(feature = "tracker")]
@@ -79,6 +80,7 @@ mod inner {
         notifier: Arc<Notify>,
         thread_id: String,
         telegram_sender: BindTelegramHelper,
+        kv_map: Box<dyn KVMap>,
     ) -> ClientResult<()> {
         let (observer_connection, auto_channel_connection) = conn;
 
@@ -104,6 +106,7 @@ mod inner {
             private_message_sender.clone(),
             config.clone(),
             thread_id.clone(),
+            kv_map,
         ));
 
         let auto_channel_instance =
@@ -173,6 +176,7 @@ mod inner {
         barrier: Arc<Barrier>,
         thread_id: String,
         telegram: TelegramHelper,
+        kv_map: Box<dyn KVMap>,
     ) -> ClientResult<()> {
         // Await all client ready
         barrier.wait().await;
@@ -183,6 +187,7 @@ mod inner {
             notifier,
             thread_id,
             telegram.into_bind(config_id),
+            kv_map,
         )
         .await
     }
@@ -258,12 +263,11 @@ mod types {
 mod controller {
     use super::inner::bootstrap;
     use crate::configure::Config;
+    use crate::plugins::Backend;
     use crate::telegram::telegram_bootstrap;
-    use anyhow::anyhow;
-    use log::{error, info};
+    use log::error;
     use std::fmt::Debug;
     use std::future::Future;
-    use std::path::Path;
     use std::pin::Pin;
     use std::sync::Arc;
     use tokio::sync::{Barrier, Notify};
@@ -289,24 +293,13 @@ mod controller {
             self.join_handler.await
         }
 
-        pub async fn bootstrap_controller<P: AsRef<Path> + Debug>(
-            paths: Vec<P>,
+        pub async fn bootstrap_controller(
+            path: String,
             notify: Arc<Notify>,
-        ) -> anyhow::Result<(Vec<Controller>, JoinHandle<anyhow::Result<()>>)> {
-            // Generate uuid for configures
-            let configures = paths
-                .into_iter()
-                .map(|path| {
-                    let thread_id = uuid::Uuid::new_v4().to_string();
-                    let ret = (
-                        thread_id.clone(),
-                        Config::try_from(path.as_ref())
-                            .map_err(|e| anyhow!("{:?}: {}", path, e))?,
-                    );
-                    info!("Load {:?} as {}", &path, thread_id);
-                    Ok(ret)
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
+        ) -> anyhow::Result<(Backend, Vec<Controller>, JoinHandle<anyhow::Result<()>>)> {
+            let configures = Config::load_config(path).await?;
+            let (kv_backend, connection) = configures.first().unwrap().1.load_kv_map().await?;
+
             let barrier = Arc::new(Barrier::new(configures.len()));
 
             let mut v = Vec::new();
@@ -314,12 +307,13 @@ mod controller {
             let (handler, telegram_helper) = telegram_bootstrap(&configures, notify.clone())?;
 
             for (thread_id, config) in configures {
+                let kv_map = connection.fork().await?;
                 let notify = notify.clone();
                 let barrier = barrier.clone();
                 let helper = telegram_helper.clone();
                 v.push(Controller::new(Box::pin(async move {
                     if let Err(e) =
-                        bootstrap(config, notify, barrier, thread_id.clone(), helper).await
+                        bootstrap(config, notify, barrier, thread_id.clone(), helper, kv_map).await
                     {
                         error!("In {}: {:?}", thread_id, e);
                         return Err(e.into());
@@ -328,7 +322,7 @@ mod controller {
                 })));
             }
 
-            Ok((v, handler))
+            Ok((kv_backend, v, handler))
         }
     }
 }

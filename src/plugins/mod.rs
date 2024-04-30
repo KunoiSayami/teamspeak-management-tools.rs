@@ -3,4 +3,4 @@ pub mod tracker;
 
 mod storage;
 
-pub use storage::{Backend, KVMap};
+pub use storage::{Backend, ForkConnection, KVMap};

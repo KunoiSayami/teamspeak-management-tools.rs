@@ -1,12 +1,15 @@
 pub mod config {
     use anyhow::anyhow;
+    use log::info;
     use serde::Deserialize;
     use std::collections::HashMap;
     use std::fmt::Debug;
     use std::fs::read_to_string;
     use std::path::Path;
+    use tap::TapFallible;
+    use tokio::io::AsyncReadExt;
 
-    use crate::plugins::{self, KVMap};
+    use crate::plugins::{Backend, ForkConnection};
 
     #[derive(Clone, Debug, Deserialize)]
     #[serde(untagged)]
@@ -98,31 +101,13 @@ pub mod config {
             self.privilege_group_id
         }
 
-        pub fn redis_server(&self) -> String {
+        /* pub fn redis_server(&self) -> String {
             if let Some(server) = &self.redis_server {
                 server.clone()
             } else {
                 String::from("redis://127.0.0.1")
             }
-        }
-
-        #[cfg(feature = "leveldb")]
-        pub async fn get_kv_map(&self) -> anyhow::Result<KVMap> {
-            if let Some(redis) = &self.redis_server {
-                return KVMap::new_redis(redis).await;
-            }
-
-            KVMap::new_leveldb(if let Some(db) = &self.leveldb {
-                db
-            } else {
-                crate::DEFAULT_LEVELDB_LOCATION
-            })
-            .await
-        }
-
-        pub async fn init_kv_map(&self) -> anyhow::Result<(plugins::Backend, Box<dyn KVMap>)> {
-            plugins::Backend::new(self.redis_server.as_ref(), self.leveldb.as_ref()).await
-        }
+        }*/
 
         pub fn ignore_user_name(&self) -> Vec<String> {
             self.ignore_user.clone().unwrap_or_default()
@@ -234,6 +219,8 @@ pub mod config {
         permissions: Option<Vec<Permission>>,
         telegram: Telegram,
         raw_query: RawQuery,
+        #[serde(default)]
+        additional: Vec<String>,
     }
 
     impl Config {
@@ -297,6 +284,49 @@ pub mod config {
 
         pub fn mute_porter(&self) -> &MutePorter {
             &self.mute_porter
+        }
+
+        pub fn additional(&self) -> &[String] {
+            &self.additional
+        }
+
+        pub async fn load_config(path: String) -> anyhow::Result<Vec<(String, Self)>> {
+            let p_config = Self::load(&path).await?;
+            let id = Self::config_xxhash(p_config.get_id().as_bytes());
+
+            info!("Load {:?} as {:?}", &path, id);
+            let mut ret = vec![(id, p_config.clone())];
+
+            for path in p_config.additional() {
+                let config = Self::load(path).await.tap_err(|e| {
+                    log::error!("Load additional configure {:?} error: {:?}", path, e)
+                })?;
+                let id = Self::config_xxhash(config.get_id().as_bytes());
+                info!("Load {:?} as {:?}", &path, id);
+                ret.push((id, config));
+            }
+
+            Ok(ret)
+        }
+
+        pub fn config_xxhash(input: &[u8]) -> String {
+            format!("{:08x}", xxhash_rust::xxh3::xxh3_128(input))
+        }
+
+        pub async fn load(path: &str) -> anyhow::Result<Self> {
+            let mut file = tokio::fs::File::open(path).await?;
+            let mut buf = String::new();
+
+            file.read_to_string(&mut buf).await?;
+            Ok(toml::from_str(&buf).map_err(|e| anyhow!("Deserialize failure: {:?}", e))?)
+        }
+
+        pub async fn load_kv_map(&self) -> anyhow::Result<(Backend, Box<dyn ForkConnection>)> {
+            Backend::connect(
+                self.server.redis_server.as_ref(),
+                self.server.leveldb.as_ref(),
+            )
+            .await
         }
     }
 
