@@ -310,7 +310,7 @@ pub mod config {
         }
 
         pub fn config_xxhash(input: &[u8]) -> String {
-            format!("{:08x}", xxhash_rust::xxh3::xxh3_128(input))
+            format!("{:08x}", xxhash_rust::xxh3::xxh3_64(input))
         }
 
         pub async fn load(path: &str) -> anyhow::Result<Self> {

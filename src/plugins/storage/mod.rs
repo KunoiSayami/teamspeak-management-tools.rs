@@ -64,3 +64,10 @@ impl Backend {
         }
     }
 }
+
+#[cfg(test)]
+impl From<leveldb::LevelDB> for Backend {
+    fn from(value: leveldb::LevelDB) -> Self {
+        Self::LevelDB(value)
+    }
+}

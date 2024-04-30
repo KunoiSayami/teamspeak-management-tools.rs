@@ -46,6 +46,11 @@ impl LevelDB {
     }
 
     pub fn new(file: String) -> (ConnAgent, Self) {
+        log::warn!("LevelDB is experimental feature, may need some additional check");
+        Self::new_with_opt(file, Self::opt)
+    }
+
+    fn new_with_opt(file: String, opt_fn: fn() -> rusty_leveldb::Options) -> (ConnAgent, Self) {
         let (sender, receiver) = DatabaseHelper::new(2048);
 
         (
@@ -54,14 +59,18 @@ impl LevelDB {
                 conn: sender,
                 handle: std::thread::Builder::new()
                     .name(String::from("LevelDB thread"))
-                    .spawn(move || Self::run(&file, receiver))
+                    .spawn(move || Self::run(&file, opt_fn, receiver))
                     .expect("Fail to spawn thread"),
             },
         )
     }
 
-    pub fn run(file: &str, mut recv: Receiver<DatabaseEvent>) -> Result<()> {
-        let mut db = rusty_leveldb::DB::open(file, Self::opt())?;
+    pub fn run(
+        file: &str,
+        opt_fn: fn() -> rusty_leveldb::Options,
+        mut recv: Receiver<DatabaseEvent>,
+    ) -> Result<()> {
+        let mut db = rusty_leveldb::DB::open(file, opt_fn())?;
         while let Some(event) = recv.blocking_recv() {
             match event {
                 DatabaseEvent::Set(k, v, sender) => {
@@ -118,5 +127,44 @@ impl KVMap for ConnAgent {
         self.0.get(key.to_string(), sender).await;
 
         Ok(receiver.await??)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::plugins::{Backend, ForkConnection};
+
+    use super::{ConnAgent, LevelDB};
+
+    async fn async_test_leveldb(agent: ConnAgent) -> anyhow::Result<()> {
+        let mut conn = agent.fork().await?;
+        conn.set("key".to_string(), "value".to_string()).await?;
+        assert_eq!(
+            conn.get("key".to_string()).await?,
+            Some("value".to_string())
+        );
+        conn.set("key".to_string(), "value".to_string()).await?;
+        conn.delete("key".to_string()).await?;
+        assert_eq!(conn.get("key".to_string()).await?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_leveldb() {
+        let (agent, db) = LevelDB::new_with_opt("db".to_string(), rusty_leveldb::in_memory);
+        let backend = Backend::from(db);
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async_test_leveldb(agent))
+            .unwrap();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(backend.disconnect())
+            .unwrap();
     }
 }

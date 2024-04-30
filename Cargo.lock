@@ -812,8 +812,8 @@ dependencies = [
 
 [[package]]
 name = "helper-generator"
-version = "0.2.1"
-source = "git+https://github.com/KunoiSayami/helper-generator.git#09deb94f326f4c44aeffc9d91d9a9943607f016e"
+version = "0.3.0"
+source = "git+https://github.com/KunoiSayami/helper-generator.git#0ec953c4f679b09d42e6cb2c4c0cc1cf29ec46fa"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1048,9 +1048,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.153"
+version = "0.2.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c198f91728a82281a64e1f4f9eeb25d82cb32a5de251c6bd1b5154d63a8e7bd"
+checksum = "ae743338b92ff9146ce83992f766a31066a91a8c84a45e0e9f21e7cf6de6d346"
 
 [[package]]
 name = "libm"
@@ -1819,9 +1819,9 @@ checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
 
 [[package]]
 name = "socket2"
-version = "0.5.6"
+version = "0.5.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05ffd9c0a93b7543e062e759284fcf5f5e3b098501104bfbdde4d404db792871"
+checksum = "ce305eb0b4296696835b71df73eb912e0f1ffd2556a501fcede6e0c50349191c"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
