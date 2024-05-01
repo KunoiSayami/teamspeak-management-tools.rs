@@ -314,7 +314,6 @@ pub async fn observer_thread(
     let interval = config.misc().interval();
     let whitelist_ip = config.server().whitelist_ip();
     let ignore_list = config.server().ignore_user_name();
-    let thread_id = thread_id;
     info!(
         "[{}], interval: {}, ban list checker: {}, mute porter: {}",
         thread_id,

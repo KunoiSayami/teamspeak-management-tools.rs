@@ -40,9 +40,10 @@ pub enum DatabaseEvent {
 
 impl LevelDB {
     pub fn opt() -> rusty_leveldb::Options {
-        let mut opt = rusty_leveldb::Options::default();
-        opt.create_if_missing = true;
-        opt
+        rusty_leveldb::Options {
+            create_if_missing: true,
+            ..Default::default()
+        }
     }
 
     pub fn new(file: String) -> (ConnAgent, Self) {
@@ -81,9 +82,8 @@ impl LevelDB {
                 DatabaseEvent::Get(k, sender) => {
                     sender
                         .send(
-                            db.get(k.as_bytes()).map_or(Ok(None), |bytes| {
-                                String::from_utf8(bytes).map(|s| Some(s))
-                            }),
+                            db.get(k.as_bytes())
+                                .map_or(Ok(None), |bytes| String::from_utf8(bytes).map(Some)),
                         )
                         .ok();
                 }

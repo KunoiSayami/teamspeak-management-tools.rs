@@ -4,8 +4,6 @@ pub mod config {
     use serde::Deserialize;
     use std::collections::HashMap;
     use std::fmt::Debug;
-    use std::fs::read_to_string;
-    use std::path::Path;
     use tap::TapFallible;
     use tokio::io::AsyncReadExt;
 
@@ -318,7 +316,7 @@ pub mod config {
             let mut buf = String::new();
 
             file.read_to_string(&mut buf).await?;
-            Ok(toml::from_str(&buf).map_err(|e| anyhow!("Deserialize failure: {:?}", e))?)
+            toml::from_str(&buf).map_err(|e| anyhow!("Deserialize failure: {:?}", e))
         }
 
         pub async fn load_kv_map(&self) -> anyhow::Result<(Backend, Box<dyn ForkConnection>)> {
@@ -327,16 +325,6 @@ pub mod config {
                 self.server.leveldb.as_ref(),
             )
             .await
-        }
-    }
-
-    impl TryFrom<&Path> for Config {
-        type Error = anyhow::Error;
-
-        fn try_from(path: &Path) -> Result<Self, Self::Error> {
-            let content = read_to_string(path).map_err(|e| anyhow!("Read error: {:?}", e))?;
-
-            toml::from_str(&content).map_err(|e| anyhow!("Deserialize toml error: {:?}", e))
         }
     }
 

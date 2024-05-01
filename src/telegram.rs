@@ -242,7 +242,10 @@ mod thread {
 
             // Check is config available in Telegram
             if config.telegram().api_key().is_empty() {
-                info!("Configure: [{}] token is empty, skipped all send message request. Send to telegram disabled.", &config_id);
+                info!(
+                    "Configure: [{}] token is empty, skipped all send message request.",
+                    &config_id
+                );
                 continue;
             }
 
@@ -288,10 +291,36 @@ mod thread {
         }
 
         let (sender, receiver) = TelegramHelper::new();
-        let handler = tokio::spawn(telegram_thread(
-            receiver, bot_map, config_map, pool_map, notifier,
-        ));
+
+        let handler = if pool_map.is_empty() {
+            tokio::spawn(void_thread(receiver, notifier))
+        } else {
+            tokio::spawn(telegram_thread(
+                receiver, bot_map, config_map, pool_map, notifier,
+            ))
+        };
         Ok((handler, sender))
+    }
+
+    async fn void_thread(
+        mut receiver: mpsc::Receiver<CombineData>,
+        notifier: Arc<Notify>,
+    ) -> anyhow::Result<()> {
+        loop {  
+            tokio::select! {
+                cmd = receiver.recv() => {
+                    if let Some(CombineData::Send(_, _)) = cmd {
+
+                    } else {
+                        break
+                    }
+                }
+                _ = notifier.notified() => {
+                    break
+                }
+            }
+        }
+        Ok(())
     }
 
     async fn telegram_thread(
@@ -301,22 +330,22 @@ mod thread {
         mut pool_map: HashMap<String, HashMap<String, MessageQueue<String>>>,
         notifier: Arc<Notify>,
     ) -> anyhow::Result<()> {
+        if bot_map.is_empty() {
+            info!("No configure found, Send to telegram disabled.");
+            return Ok(());
+        }
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
                 cmd = receiver.recv() => {
-                    if let Some(cmd) = cmd {
-                        match cmd {
-                            CombineData::Send(config_id, data) => {
-                                if let Some(bot_id) = config_map.get(&config_id) {
-                                    let map = pool_map
-                                        .get_mut(bot_id)
-                                        .expect(QUERY_BOT_ERROR)
-                                        .get_mut(&config_id)
-                                        .expect(QUERY_CONFIG_ERROR);
-                                    map.push(data.to_string());
-                                }
-                            }
+                    if let Some(CombineData::Send(config_id, data)) = cmd {
+                        if let Some(bot_id) = config_map.get(&config_id) {
+                            let map = pool_map
+                                .get_mut(bot_id)
+                                .expect(QUERY_BOT_ERROR)
+                                .get_mut(&config_id)
+                                .expect(QUERY_CONFIG_ERROR);
+                            map.push(data.to_string());
                         }
                     } else {
                         break;

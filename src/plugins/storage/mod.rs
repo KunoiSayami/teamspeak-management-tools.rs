@@ -49,7 +49,7 @@ impl Backend {
 
     pub async fn disconnect(self) -> anyhow::Result<()> {
         if let Self::LevelDB(db) = self {
-            if let None = db.exit().await {
+            if db.exit().await.is_none() {
                 return Ok(());
             }
             for _ in 0..30 {
