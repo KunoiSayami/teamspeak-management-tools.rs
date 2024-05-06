@@ -210,12 +210,36 @@ mod types {
             self.bot.send_message(ChatId(self.channel_id), message)
         }
     }
+
+    pub(super) struct PoolIter<'a> {
+        name: &'a str,
+        iter: std::slice::Iter<'a, String>,
+    }
+
+    impl<'a> From<(&'a str, std::slice::Iter<'a, String>)> for PoolIter<'a> {
+        fn from(value: (&'a str, std::slice::Iter<'a, String>)) -> Self {
+            Self {
+                name: value.0,
+                iter: value.1,
+            }
+        }
+    }
+    impl<'a> Iterator for PoolIter<'a> {
+        type Item = (&'a str, &'a String);
+
+        fn next(&mut self) -> Option<Self::Item> {
+            if let Some(s) = self.iter.next() {
+                Some((self.name, s))
+            } else {
+                None
+            }
+        }
+    }
 }
 
 mod thread {
-    use super::types::{CombineData, TelegramBot, TelegramHelper};
+    use super::types::{CombineData, TelegramBot, TelegramData, TelegramHelper};
     use crate::configure::Config;
-    use crate::types::MessageQueue;
     use anyhow::anyhow;
     use log::{debug, error, info, warn};
     use std::collections::HashMap;
@@ -225,7 +249,6 @@ mod thread {
     use tokio::sync::{mpsc, Notify};
 
     const QUERY_BOT_ERROR: &str = "Query bot error";
-    const QUERY_CONFIG_ERROR: &str = "Query config id error";
 
     pub fn telegram_bootstrap(
         configs: &Vec<(String, Config)>,
@@ -236,7 +259,7 @@ mod thread {
         // A hashmap container bot instance
         let mut bot_map = HashMap::new();
         // A hashmap container bot id with messages relationship (Queue is configure id with unsent message)
-        let mut pool_map: HashMap<String, HashMap<String, MessageQueue<String>>> = HashMap::new();
+        //let mut pool_map: HashMap<String, HashMap<String, MessageQueue<String>>> = HashMap::new();
         for (_, config) in configs {
             let config_id = config.get_id();
 
@@ -268,84 +291,52 @@ mod thread {
             if bot_map.get(&bot_id).is_none() {
                 bot_map.insert(
                     bot_id.clone(),
-                    TelegramBot::new(
-                        config.telegram().api_key(),
-                        config.telegram().api_server(),
-                        config.telegram().target(),
-                    )
-                    .map_err(|e| anyhow!("Parse error: {:?}", e))?,
+                    (
+                        TelegramBot::new(
+                            config.telegram().api_key(),
+                            config.telegram().api_server(),
+                            config.telegram().target(),
+                        )
+                        .map_err(|e| anyhow!("Parse error: {:?}", e))?,
+                        vec![],
+                    ),
                 );
-            }
-
-            // Initialize message pool
-            match pool_map.get_mut(&bot_id) {
-                Some(element) => {
-                    element.insert(config_id.clone(), MessageQueue::new());
-                }
-                None => {
-                    let mut m = HashMap::new();
-                    m.insert(config_id, MessageQueue::<String>::new());
-                    pool_map.insert(bot_id.clone(), m);
-                }
             }
         }
 
         let (sender, receiver) = TelegramHelper::new();
 
-        let handler = if pool_map.is_empty() {
+        let handler = if config_map.is_empty() {
             tokio::spawn(void_thread(receiver, notifier))
         } else {
-            tokio::spawn(telegram_thread(
-                receiver, bot_map, config_map, pool_map, notifier,
-            ))
+            tokio::spawn(telegram_thread(receiver, bot_map, config_map, notifier))
         };
         Ok((handler, sender))
     }
 
-    async fn void_thread(
-        mut receiver: mpsc::Receiver<CombineData>,
-        notifier: Arc<Notify>,
-    ) -> anyhow::Result<()> {
-        loop {  
-            tokio::select! {
-                cmd = receiver.recv() => {
-                    if let Some(CombineData::Send(_, _)) = cmd {
-
-                    } else {
-                        break
-                    }
-                }
-                _ = notifier.notified() => {
-                    break
-                }
-            }
-        }
-        Ok(())
-    }
-
     async fn telegram_thread(
         mut receiver: mpsc::Receiver<CombineData>,
-        bot_map: HashMap<String, TelegramBot>,
+        mut bot_map: HashMap<String, (TelegramBot, Vec<(String, TelegramData)>)>,
         config_map: HashMap<String, String>,
-        mut pool_map: HashMap<String, HashMap<String, MessageQueue<String>>>,
         notifier: Arc<Notify>,
     ) -> anyhow::Result<()> {
         if bot_map.is_empty() {
             info!("No configure found, Send to telegram disabled.");
             return Ok(());
         }
+        //let mut queue = Vec::new();
+        let mut pending = Vec::new();
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
             tokio::select! {
                 cmd = receiver.recv() => {
                     if let Some(CombineData::Send(config_id, data)) = cmd {
                         if let Some(bot_id) = config_map.get(&config_id) {
-                            let map = pool_map
+                            bot_map
                                 .get_mut(bot_id)
                                 .expect(QUERY_BOT_ERROR)
-                                .get_mut(&config_id)
-                                .expect(QUERY_CONFIG_ERROR);
-                            map.push(data.to_string());
+                                .1
+                                .push((config_id, data));
                         }
                     } else {
                         break;
@@ -354,34 +345,35 @@ mod thread {
 
                 // Tick by timer
                 _ = interval.tick() => {
-                    for (bot_id, pool) in &mut pool_map {
-                        if pool.is_empty() {
+                    for (bot_id, (bot, queue)) in &mut bot_map {
+                        if queue.is_empty() {
                             continue;
                         }
 
-                        // For each, get message queue
-                        for (config_id, origin_queue) in pool {
-                            if origin_queue.is_empty() {
-                                continue;
-                            }
-                            let bot = bot_map.get(bot_id).expect(QUERY_BOT_ERROR);
-                            let mut sent = 0;
-                            for message in origin_queue.chunks(5) {
-                                if let Err(e) = bot
-                                    .send(format!("[{}]\n{}", config_id, message.join("\n")))
-                                    .send()
-                                    .await
-                                {
-                                    error!("Got error in send telegram message {:?}", e);
-                                    break;
+                        let mut sent = 0;
+
+                        for chunk in queue.chunks(8) {
+                            let mut prev = &String::new();
+                            for (config_id, data) in chunk {
+                                if ! config_id.eq(prev) {
+                                    pending.push(config_id.clone());
+                                    prev = config_id;
                                 }
-                                sent += message.len();
+                                pending.push(data.to_string());
                             }
-                            if sent >= origin_queue.len() {
-                                origin_queue.clear()
-                            } else {
-                                origin_queue.drain(..sent);
+                            let message = pending.join("\n");
+                            pending.clear();
+
+                            if let Err(e) = bot.send(message).send().await {
+                                error!("Got error in {} send telegram message {:?}", bot_id, e);
+                                break;
                             }
+                            sent += chunk.len();
+                        }
+                        if sent >= queue.len() {
+                            queue.clear()
+                        } else {
+                            queue.drain(..sent);
                         }
                     }
                 }
@@ -394,7 +386,47 @@ mod thread {
         debug!("Send message daemon exiting...");
         Ok(())
     }
+
+    async fn void_thread(
+        mut receiver: mpsc::Receiver<CombineData>,
+        notifier: Arc<Notify>,
+    ) -> anyhow::Result<()> {
+        loop {
+            tokio::select! {
+                cmd = receiver.recv() => {
+                    if cmd.is_none() {
+                        break
+                    }
+                }
+                _ = notifier.notified() => {
+                    break
+                }
+            }
+        }
+        Ok(())
+    }
 }
+
+/* #[cfg(test)]
+mod test {
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_iterator() {
+        let mut m = HashMap::new();
+        m.insert("11", vec![1, 9, 1, 9, 8, 1, 0]);
+        m.insert("45", vec![]);
+        m.insert("14", vec![1, 1, 4, 5, 1, 4]);
+
+        let iter = m
+            .iter()
+            .map(|(k, v)| std::iter::zip(std::iter::repeat(k), v))
+            .flatten()
+            .collect::<Vec<_>>();
+
+        assert_eq!(iter.len(), 13);
+    }
+} */
 
 pub use thread::telegram_bootstrap;
 pub use types::{BindTelegramHelper, TelegramHelper};

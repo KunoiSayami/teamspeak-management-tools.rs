@@ -161,20 +161,11 @@ pub mod config {
     #[derive(Clone, Debug, Deserialize)]
     pub struct Misc {
         interval: Option<u64>,
-        #[allow(unused)]
-        #[deprecated(since = "4.0.0")]
-        systemd: Option<bool>,
     }
 
     impl Misc {
         pub fn interval(&self) -> u64 {
             self.interval.unwrap_or(5)
-        }
-
-        #[allow(unused, deprecated)]
-        #[deprecated(since = "4.0.0")]
-        pub fn systemd(&self) -> bool {
-            self.systemd.unwrap_or(false)
         }
     }
 

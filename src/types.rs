@@ -673,36 +673,6 @@ mod pseudo_event_helper {
     }
 }
 
-mod queue {
-
-    #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
-    pub struct MessageQueue<T>(Vec<T>);
-
-    impl<T: std::ops::Deref> std::ops::Deref for MessageQueue<T> {
-        type Target = Vec<T>;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl<T: std::ops::DerefMut> std::ops::DerefMut for MessageQueue<T> {
-        fn deref_mut(&mut self) -> &mut Vec<T> {
-            &mut self.0
-        }
-    }
-
-    impl<T> MessageQueue<T> {
-        /*pub fn len(&self) -> usize {
-            self.inner.len()
-        }*/
-
-        pub fn new() -> Self {
-            Self(Vec::new())
-        }
-    }
-}
-
 pub use ban_entry::BanEntry;
 //pub use channel::Channel;
 pub use client::Client;
@@ -713,7 +683,6 @@ pub use notifies::{
     NotifyClientEnterView, NotifyClientLeftView, NotifyClientMovedView, NotifyTextMessage,
 };
 pub use pseudo_event_helper::EventHelperTrait;
-pub use queue::MessageQueue;
 
 #[cfg(not(feature = "tracker"))]
 pub use pseudo_event_helper::PseudoEventHelper;

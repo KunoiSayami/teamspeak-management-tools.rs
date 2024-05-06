@@ -17,7 +17,7 @@ You should create a configure files in the same directory as work directory.
 
 
 ```toml
-additional = [] # Another configure filename
+additional = [] # Additional configure filename
 [server]
 server_id = 1 # Server ID
 channel_id = [1, 2] # Channel ID
@@ -66,7 +66,8 @@ password = "114514" # TeamSpeak ServerQuery Password
 |      server_id       |    integer     | Optional | The ID of the server, which you want to get the channel. <br>If there are multiple servers running, you can get the ID via the TeamSpeak 3 Server Query. <br>Generally, the server ID is `1`.                                                                                                                            |
 |      channel_id      | integer, array | Required | The ID of the channel, which you want to listen to.                                                                                                                                                                                                                                                                      |
 |  privilege_group_id  |    integer     | Required | The ID of the privilege group, which will be assigned to user who joins the channel specified by `channel_id`. <br>`5` means Channel Admin Generally.                                                                                                                                                                    |
-|     redis_server     |     string     | Required | Redis Server is Required. Redis Server Should be like `redis://[<username>][:<password>@]<hostname>[:port][/<db>]`. <br>More information about Redis URL can be found [here](https://docs.rs/redis/latest/redis/#connection-parameters).                                                                                 |
+|     redis_server     |     string     | Required | Redis Server is optional if `leveldb` is specified. Redis Server Should be like `redis://[<username>][:<password>@]<hostname>[:port][/<db>]`. <br>More information about Redis URL can be found [here](https://docs.rs/redis/latest/redis/#connection-parameters).                                                       |
+|       leveldb        |     string     | Required | Required if redis server is not specified                                                                                                                                                                                                                                                                                |
 | track_channel_member |     string     | Optional | It will record user membership in specify database (Require `tracker` feature)                                                                                                                                                                                                                                           |
 |     mute_porter      |     table      | Optional | Auto move muter user from one channel to another channel, useful in default channel.                                                                                                                                                                                                                                     |
 |       monitor        |    integer     | Required | Porter monitor channel.                                                                                                                                                                                                                                                                                                  |
