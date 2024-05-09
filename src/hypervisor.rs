@@ -289,8 +289,8 @@ mod controller {
             self.join_handler.is_finished()
         }
 
-        pub async fn wait(self) -> Result<anyhow::Result<()>, tokio::task::JoinError> {
-            self.join_handler.await
+        pub async fn wait(self) -> anyhow::Result<()> {
+            self.join_handler.await?
         }
 
         pub async fn bootstrap_controller(
