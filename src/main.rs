@@ -11,6 +11,7 @@ use crate::hypervisor::{Controller, SYSTEMD_MODE};
 use clap::{arg, command};
 use log::{error, info, LevelFilter};
 use once_cell::sync::OnceCell;
+use std::io::Write as _;
 use std::sync::Arc;
 use tokio::sync::Notify;
 
@@ -73,7 +74,7 @@ async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()
     Ok(())
 }
 
-fn build_logger(count: u8) {
+fn build_logger(count: u8, systemd_mode: bool) {
     let mut builder = env_logger::Builder::from_default_env();
     if count < 1 {
         builder.filter_module("sqlx", LevelFilter::Warn);
@@ -87,6 +88,9 @@ fn build_logger(count: u8) {
         builder
             .filter_module("rustls", LevelFilter::Warn)
             .filter_module("reqwest", LevelFilter::Warn);
+    }
+    if systemd_mode {
+        builder.format(|buf, record| writeln!(buf, "[{}] {}", record.level(), record.args()));
     }
     builder.init();
 }
@@ -103,7 +107,8 @@ fn main() -> anyhow::Result<()> {
         ])
         .get_matches();
 
-    build_logger(*matches.get_one::<u8>("debug").unwrap_or(&0));
+    let systemd_mode = matches.get_flag("systemd");
+    build_logger(*matches.get_one::<u8>("debug").unwrap_or(&0), systemd_mode);
 
     if let Some(nickname) = matches.get_one::<String>("observer-name") {
         OBSERVER_NICKNAME_OVERRIDE
@@ -124,10 +129,7 @@ fn main() -> anyhow::Result<()> {
         .enable_all()
         .build()
         .unwrap()
-        .block_on(start_services(
-            configure.clone(),
-            matches.get_flag("systemd"),
-        ))?;
+        .block_on(start_services(configure.clone(), systemd_mode))?;
 
     Ok(())
 }
