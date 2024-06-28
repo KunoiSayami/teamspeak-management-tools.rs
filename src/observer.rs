@@ -97,7 +97,7 @@ mod processor {
             client_map: &mut HashMap<i64, (String, bool)>,
         ) -> Result {
             let view = NotifyClientEnterView::from_query(line)
-                .map_err(|e| anyhow!("Got error while deserialize enter view: {:?}", e))?;
+                .map_err(|e| anyhow!("Got error while deserialize enter view: {e:?}"))?;
             let is_server_query = view.client_unique_identifier().eq("ServerQuery")
                 || argument
                     .ignore_list()
@@ -155,7 +155,7 @@ mod processor {
             client_map: &mut HashMap<i64, (String, bool)>,
         ) -> Result {
             let view = NotifyClientLeftView::from_query(line)
-                .map_err(|e| anyhow!("Got error while deserialize left view: {:?}", e))?;
+                .map_err(|e| anyhow!("Got error while deserialize left view: {e:?}"))?;
             if !client_map.contains_key(&view.client_id()) {
                 warn!(
                     "[{}] Can't find client: {:?}",
@@ -198,7 +198,7 @@ mod processor {
 
         pub(super) async fn user_move(line: &str, argument: &Arguments<'_>) -> Result {
             let view = NotifyClientMovedView::from_query(line)
-                .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
+                .map_err(|e| anyhow!("Got error while deserialize moved view: {e:?}"))?;
             argument
                 .monitor_channel()
                 .send(view.clone().into())
@@ -224,7 +224,7 @@ mod processor {
 
         pub(super) async fn user_text(line: &str, argument: &Arguments<'_>) -> Result {
             let view = NotifyTextMessage::from_query(line)
-                .map_err(|e| anyhow!("Got error while deserialize moved view: {:?}", e))?;
+                .map_err(|e| anyhow!("Got error while deserialize moved view: {e:?}"))?;
 
             if !view.msg().eq("!reset") {
                 return Ok(());
@@ -257,10 +257,9 @@ mod processor {
                 if argument.whitelist_ip().iter().any(|ip| entry.ip().eq(ip)) {
                     conn.ban_del(entry.ban_id()).await.map(|_| {
                         info!(
-                            "[{}] Remove whitelist ip {} from ban list (was {})",
+                            "[{}] Remove whitelist ip {} from ban list (was {entry})",
                             argument.thread_id(),
                             entry.ip(),
-                            entry
                         )
                     })?
                 }
@@ -315,9 +314,7 @@ pub async fn observer_thread(
     let whitelist_ip = config.server().whitelist_ip();
     let ignore_list = config.server().ignore_user_name();
     info!(
-        "[{}], interval: {}, ban list checker: {}, mute porter: {}",
-        thread_id,
-        interval,
+        "[{thread_id}], interval: {interval}, ban list checker: {}, mute porter: {}",
         !whitelist_ip.is_empty(),
         config.mute_porter().enable()
     );
@@ -326,14 +323,14 @@ pub async fn observer_thread(
         OBSERVER_NICKNAME_OVERRIDE.get_or_init(|| DEFAULT_OBSERVER_NICKNAME.to_string()),
     )
     .await
-    .map_err(|e| anyhow!("Got error while change nickname: {:?}", e))?;
+    .map_err(|e| anyhow!("Got error while change nickname: {e:?}"))?;
 
     let mut client_map: HashMap<i64, (String, bool)> = HashMap::new();
 
     for client in conn
         .query_clients()
         .await
-        .map_err(|e| anyhow!("QueryClient failure: {:?}", e))?
+        .map_err(|e| anyhow!("QueryClient failure: {e:?}"))?
     {
         if client_map.get(&client.client_id()).is_some() || !client.client_is_user() {
             continue;
@@ -351,18 +348,18 @@ pub async fn observer_thread(
                 Some(client.channel_id() as i32),
             )
             .await
-            .tap_none(|| warn!("[{}] Unable send insert request", thread_id));
+            .tap_none(|| warn!("[{thread_id}] Unable send insert request"));
     }
 
     // TODO: Check if this is necessary
     conn.register_observer_events()
         .await
-        .map_err(|e| anyhow!("Got error while register events: {:?}", e))?;
+        .map_err(|e| anyhow!("Got error while register events: {e:?}"))?;
 
     if monitor_channel.valid() {
         conn.register_channel_events()
             .await
-            .map_err(|e| anyhow!("Register monitor channel error: {:?}", e))?;
+            .map_err(|e| anyhow!("Register monitor channel error: {e:?}"))?;
     }
 
     if !whitelist_ip.is_empty() {
@@ -381,20 +378,20 @@ pub async fn observer_thread(
 
                         conn.send_text_message_unchecked(client_id, &message)
                         .await
-                        .map(|_| trace!("[{}] Send message to {}", thread_id,client_id))
+                        .map(|_| trace!("[{thread_id}] Send message to {client_id}"))
                         .map_err(|e| {
-                            anyhow!("Got error while send message to {} {:?}", client_id, e)
+                            anyhow!("[{thread_id}] Got error while send message to {client_id} {e:?}")
                         })?;
                         continue
                     }
                     PrivateMessageRequest::KeepAlive => {
                         conn.send_keepalive().await
                             .map_err(|e| {
-                                anyhow!("Got error while write data in keep alive function: {:?}", e)
+                                anyhow!("Got error while write data in keep alive function: {e:?}")
                             })?;
                     }
                     PrivateMessageRequest::Terminate => {
-                        info!("[{}] Exit from staff thread!", thread_id);
+                        info!("[{thread_id}] Exit from staff thread!");
                         conn.logout().await.ok();
                         break;
                     }
@@ -410,7 +407,7 @@ pub async fn observer_thread(
         let data = conn
             .read_data()
             .await
-            .map_err(|e| anyhow!("Got error while read data: {:?}", e))?;
+            .map_err(|e| anyhow!("Got error while read data: {e:?}"))?;
 
         if !matches!(&data, Some(x) if !x.is_empty()) {
             continue;
@@ -430,7 +427,7 @@ pub async fn observer_thread(
             if line.is_empty() {
                 continue;
             }
-            trace!("[{}] {}", thread_id, line);
+            trace!("[{thread_id}] {line}",);
 
             staff(line, &mut client_map, &mut conn, &arguments).await?;
         }
@@ -440,7 +437,7 @@ pub async fn observer_thread(
     monitor_channel
         .send_terminate()
         .await
-        .tap_err(|e| error!("[{}] {:?}", thread_id, e))
+        .tap_err(|e| error!("[{thread_id}] {e:?}"))
         .ok();
 
     Ok(())

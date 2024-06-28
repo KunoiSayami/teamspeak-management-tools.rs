@@ -4,7 +4,7 @@ pub trait FromQueryString: for<'de> Deserialize<'de> {
         Self: Sized,
     {
         serde_teamspeak_querystring::from_str(data)
-            .map_err(|e| anyhow::anyhow!("Got parser error: {:?}", e))
+            .map_err(|e| anyhow::anyhow!("Got parser error: {e:?}"))
     }
 }
 

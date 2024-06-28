@@ -18,8 +18,7 @@ impl SocketConn {
     fn decode_status(content: String) -> QueryResult<String> {
         debug_assert!(
             !content.contains("Welcome to the TeamSpeak 3") && content.contains("error id="),
-            "Content => {:?}",
-            content
+            "Content => {content:?}",
         );
 
         for line in content.lines() {
@@ -62,7 +61,7 @@ impl SocketConn {
             {
                 match data {
                     Ok(size) => size,
-                    Err(e) => return Err(anyhow!("Got error while read data: {:?}", e)),
+                    Err(e) => return Err(anyhow!("Got error while read data: {e:?}")),
                 }
             } else {
                 return Ok(None);
@@ -84,18 +83,17 @@ impl SocketConn {
             .map(|size| {
                 if size != payload.as_bytes().len() {
                     error!(
-                        "Error payload size mismatch! expect {} but {} found. payload: {:?}",
+                        "Error payload size mismatch! expect {} but {size} found. payload: {payload:?}",
                         payload.as_bytes().len(),
-                        size,
-                        payload
+
                     )
                 }
             })
-            .map_err(|e| anyhow!("Got error while send data: {:?}", e))?;
+            .map_err(|e| anyhow!("Got error while send data: {e:?}"))?;
         /*self.conn
         .flush()
         .await
-        .tap_err(|e| anyhow!("Got error while flush data: {:?}", e))?;*/
+        .tap_err(|e| anyhow!("Got error while flush data: {e:?}"))?;*/
         Ok(())
     }
 
@@ -118,7 +116,7 @@ impl SocketConn {
         let data = self.write_and_read(payload).await?;
         let ret = Self::decode_status_with_result(data)?;
         Ok(ret
-            .ok_or_else(|| panic!("Can't find result line, payload => {}", payload))
+            .ok_or_else(|| panic!("Can't find result line, payload => {payload}"))
             .unwrap())
     }
 
@@ -147,9 +145,9 @@ impl SocketConn {
     }
 
     pub async fn connect(server: &str, port: u16) -> anyhow::Result<Self> {
-        let conn = TcpStream::connect(format!("{}:{}", server, port))
+        let conn = TcpStream::connect(format!("{server}:{port}"))
             .await
-            .map_err(|e| anyhow!("Got error while connect to {}:{} {:?}", server, port, e))?;
+            .map_err(|e| anyhow!("Got error while connect to {server}:{port} {e:?}"))?;
 
         //let bufreader = BufReader::new(conn);
         //conn.set_nonblocking(true).unwrap();
@@ -158,7 +156,7 @@ impl SocketConn {
         let content = self_
             .read_data()
             .await
-            .map_err(|e| anyhow!("Got error in connect while read content: {:?}", e))?;
+            .map_err(|e| anyhow!("Got error in connect while read content: {e:?}"))?;
 
         if content.is_none() {
             warn!("Read none data.");
@@ -168,12 +166,12 @@ impl SocketConn {
     }
 
     pub async fn login(&mut self, user: &str, password: &str) -> QueryResult<()> {
-        let payload = format!("login {} {}\n\r", user, password);
+        let payload = format!("login {user} {password}\n\r");
         self.basic_operation(payload.as_str()).await
     }
 
     pub async fn select_server(&mut self, server_id: i64) -> QueryResult<()> {
-        let payload = format!("use {}\n\r", server_id);
+        let payload = format!("use {server_id}\n\r");
         self.basic_operation(payload.as_str()).await
     }
 
@@ -275,11 +273,10 @@ impl SocketConn {
         permissions: &[(u64, i64)],
     ) -> QueryResult<()> {
         let payload = format!(
-            "channeladdperm cid={} {}",
-            target_channel,
+            "channeladdperm cid={target_channel} {}",
             permissions
                 .iter()
-                .map(|(k, v)| format!("permid={} permvalue={}\n\r", k, v))
+                .map(|(k, v)| format!("permid={k} permvalue={v}\n\r",))
                 .collect::<Vec<String>>()
                 .join("|")
         );
@@ -327,17 +324,17 @@ impl SocketConn {
         &mut self,
         uid: &str,
     ) -> QueryResult<DatabaseId> {
-        self.query_operation_non_error(&format!("clientgetdbidfromuid cluid={}\n\r", uid))
+        self.query_operation_non_error(&format!("clientgetdbidfromuid cluid={uid}\n\r"))
             .await
             .map(|mut v| v.remove(0))
     }
 
     pub async fn ban_del(&mut self, ban_id: i64) -> QueryResult<()> {
-        self.basic_operation(&format!("bandel banid={}\n\r", ban_id))
+        self.basic_operation(&format!("bandel banid={ban_id}\n\r"))
             .await
     }
     pub async fn query_client_info(&mut self, client_id: i64) -> QueryResult<Option<ClientInfo>> {
-        self.query_one_operation(&format!("clientinfo clid={}\n\r", client_id))
+        self.query_one_operation(&format!("clientinfo clid={client_id}\n\r"))
             .await
     }
 }

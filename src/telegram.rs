@@ -35,30 +35,19 @@ mod types {
                 TelegramData::Enter(time, client_id, client_identifier, nickname, country) => {
                     write!(
                         f,
-                        "[{}] <b>{}</b>(<code>{}</code>:{})[{}] joined",
-                        time,
-                        nickname,
-                        client_identifier,
-                        client_id,
+                        "[{time}] <b>{nickname}</b>(<code>{client_identifier}</code>:{client_id})[{}] joined",
+
                         country_emoji::flag(country).unwrap_or_else(|| country.to_string())
                     )
                 }
                 TelegramData::Left(time, view, nickname) => match view.reason_id() {
                     8 => {
                         if view.reason().is_empty() {
-                            write!(
-                                f,
-                                "[{}] <b>{}</b>({}) left",
-                                time,
-                                nickname,
-                                view.client_id()
-                            )
+                            write!(f, "[{time}] <b>{nickname}</b>({}) left", view.client_id())
                         } else {
                             write!(
                                 f,
-                                "[{}] <b>{}</b>({}) left ({})",
-                                time,
-                                nickname,
+                                "[{time}] <b>{nickname}</b>({}) left ({})",
                                 view.client_id(),
                                 view.reason()
                             )
@@ -87,7 +76,7 @@ mod types {
                                }
                         )
                     }
-                    _ => unreachable!("Got unexpected left message: {:?}", view),
+                    _ => unreachable!("Got unexpected left message: {view:?}"),
                 },
             }
         }
@@ -265,20 +254,14 @@ mod thread {
 
             // Check is config available in Telegram
             if config.telegram().api_key().is_empty() {
-                info!(
-                    "Configure: [{}] token is empty, skipped all send message request.",
-                    &config_id
-                );
+                info!("Configure: [{config_id}] token is empty, skipped all send message request.",);
                 continue;
             }
 
             // Get bot self ID
             let bot_id = match config.telegram().api_key().split_once(':') {
                 None => {
-                    warn!(
-                        "Configure: [{}] token in invalid format, ignore.",
-                        &config_id
-                    );
+                    warn!("Configure: [{config_id}] token in invalid format, ignore.",);
                     continue;
                 }
                 Some((id, _)) => id.to_string(),
@@ -297,7 +280,7 @@ mod thread {
                             config.telegram().api_server(),
                             config.telegram().target(),
                         )
-                        .map_err(|e| anyhow!("Parse error: {:?}", e))?,
+                        .map_err(|e| anyhow!("Parse error: {e:?}"))?,
                         vec![],
                     ),
                 );
@@ -365,7 +348,7 @@ mod thread {
                             pending.clear();
 
                             if let Err(e) = bot.send(message).send().await {
-                                error!("Got error in {} send telegram message {:?}", bot_id, e);
+                                error!("Got error in {bot_id} send telegram message {e:?}");
                                 break;
                             }
                             sent += chunk.len();

@@ -287,11 +287,11 @@ pub mod config {
             let mut ret = vec![(id, p_config.clone())];
 
             for path in p_config.additional() {
-                let config = Self::load(path).await.tap_err(|e| {
-                    log::error!("Load additional configure {:?} error: {:?}", path, e)
-                })?;
+                let config = Self::load(path)
+                    .await
+                    .tap_err(|e| log::error!("Load additional configure {path:?} error: {e:?}"))?;
                 let id = Self::config_xxhash(config.get_id().as_bytes());
-                info!("Load {:?} as {:?}", &path, id);
+                info!("Load {path:?} as {id:?}");
                 ret.push((id, config));
             }
 
@@ -307,7 +307,7 @@ pub mod config {
             let mut buf = String::new();
 
             file.read_to_string(&mut buf).await?;
-            toml::from_str(&buf).map_err(|e| anyhow!("Deserialize failure: {:?}", e))
+            toml::from_str(&buf).map_err(|e| anyhow!("Deserialize failure: {e:?}"))
         }
 
         pub async fn load_kv_map(&self) -> anyhow::Result<(Backend, Box<dyn ForkConnection>)> {

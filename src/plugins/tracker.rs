@@ -14,7 +14,7 @@ pub mod v1 {
             "nickname" TEXT,
             "channel"	INTEGER
         );
-        
+
         CREATE TABLE "meta" (
             "key" TEXT NOT NULL,
             "value" TEXT
@@ -183,7 +183,7 @@ pub mod handler {
                     Event::Insert(client_id, user_id, nickname, channel) => {
                         super::current::insert(&mut conn, client_id, user_id, nickname, channel)
                             .await
-                            .tap_err(|e| error!("Unable insert to database: {:?}", e))
+                            .tap_err(|e| error!("Unable insert to database: {e:?}"))
                             .ok();
                     }
                     Event::Terminate => {

@@ -44,13 +44,16 @@ mod inner {
                         init_connection(config.raw_query(), sid)
                             .await
                             .map_err(|e| {
-                                anyhow!("Got error while create second connection: {:?}", e)
+                                anyhow!("Got error while create second connection: {e:?}")
                             })?,
                     ))
                 }
                 Err(e) => {
                     if retries == SYSTEMD_MODE_RETRIES_TIMES && step < retries - 1 {
-                        warn!("Connect server error, will retry after 10 seconds, {}", e);
+                        warn!(
+                            "[{}] Connect server error, will retry after 10 seconds, {e}",
+                            config.get_id()
+                        );
                         tokio::time::sleep(Duration::from_secs(10)).await;
                     } else {
                         return Err(e);
@@ -65,11 +68,11 @@ mod inner {
         let mut conn = SocketConn::connect(&cfg.server(), cfg.port()).await?;
         conn.login(cfg.user(), cfg.password())
             .await
-            .map_err(|e| anyhow!("Login failed. {:?}", e))?;
+            .map_err(|e| anyhow!("Login failed. {e:?}"))?;
 
         conn.select_server(sid)
             .await
-            .map_err(|e| anyhow!("Select server id failed: {:?}", e))?;
+            .map_err(|e| anyhow!("Select server id failed: {e:?}"))?;
 
         Ok(conn)
     }
@@ -93,7 +96,7 @@ mod inner {
         #[cfg(feature = "tracker")]
         let (user_tracker, tracker_controller) =
             DatabaseHelper::safe_new(config.server().track_channel_member().clone(), |e| {
-                error!("Unable to create tracker {:?}", e)
+                error!("Unable to create tracker {e:?}")
             })
             .await;
 
@@ -155,7 +158,7 @@ mod inner {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                     private_message_sender.send(PrivateMessageRequest::KeepAlive)
                         .await
-                        .tap_err(|_| error!("[{}] Send keep alive command error", &thread_id))
+                        .tap_err(|_| error!("[{thread_id}] Send keep alive command error"))
                         .ok();
                 }
             } => {
@@ -167,7 +170,7 @@ mod inner {
         }
 
         for ret in tokio::try_join!(auto_channel_handler, user_tracker.wait(),)
-            .map_err(|e| anyhow!("[{}] try_join! failed: {:?}", &thread_id, e))?
+            .map_err(|e| anyhow!("[{thread_id}] try_join! failed: {e:?}"))?
             .to_vec()
         {
             ret?;
@@ -215,7 +218,7 @@ mod types {
 
     impl From<tokio::io::Error> for SubThreadExitReason {
         fn from(value: tokio::io::Error) -> Self {
-            Self::from(anyhow!("Got tokio::io::Error: {:?}", value))
+            Self::from(anyhow!("Got tokio::io::Error: {value:?}"))
         }
     }
 
@@ -247,13 +250,13 @@ mod types {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 Self::Error(e) => {
-                    write!(f, "Error: {:?}", e)
+                    write!(f, "Error: {e:?}")
                 }
                 Self::Abort(abort_msg) => {
-                    write!(f, "Abort from: {}", abort_msg)
+                    write!(f, "Abort from: {abort_msg}")
                 }
                 SubThreadExitReason::JoinError(e) => {
-                    write!(f, "JoinError: {:?}", e)
+                    write!(f, "JoinError: {e:?}")
                 }
             }
         }
@@ -261,7 +264,7 @@ mod types {
 
     impl From<SubThreadExitReason> for anyhow::Error {
         fn from(value: SubThreadExitReason) -> Self {
-            anyhow!("{:?}", value)
+            anyhow!("{value:?}")
         }
     }
 }
@@ -321,7 +324,7 @@ mod controller {
                     if let Err(e) =
                         bootstrap(config, notify, barrier, thread_id.clone(), helper, kv_map).await
                     {
-                        error!("In {}: {:?}", thread_id, e);
+                        error!("In {thread_id}: {e:?}");
                         return Err(e.into());
                     }
                     Ok(())
