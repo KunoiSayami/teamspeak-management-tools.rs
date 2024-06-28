@@ -1,7 +1,6 @@
-use helper_generator::Helper;
-use tokio::sync::{mpsc::Receiver, oneshot};
+use tokio::sync::mpsc::Receiver;
 
-pub type OnceSender<T> = tokio::sync::oneshot::Sender<T>;
+//pub type OnceSender<T> = tokio::sync::oneshot::Sender<T>;
 pub use rusty_leveldb::Result;
 
 use super::{ForkConnection, KVMap};
@@ -27,15 +26,19 @@ pub struct LevelDB {
     handle: std::thread::JoinHandle<Result<()>>,
 }
 
-#[derive(Helper)]
-pub enum DatabaseEvent {
-    Set(String, String, OnceSender<Result<()>>),
-    Get(
-        String,
-        OnceSender<std::result::Result<Option<String>, std::string::FromUtf8Error>>,
-    ),
-    Delete(String, OnceSender<Result<()>>),
-    Exit,
+kstool_helper_generator::oneshot_helper! {
+
+    pub enum DatabaseEvent {
+        #[ret(Result<()>)]
+        Set(String, String),
+        #[ret(std::result::Result<Option<String>, std::string::FromUtf8Error>)]
+        Get(
+            String,
+        ),
+        #[ret(Result<()>)]
+        Delete(String),
+        Exit,
+    }
 }
 
 impl LevelDB {
@@ -109,24 +112,23 @@ impl LevelDB {
 #[async_trait::async_trait]
 impl KVMap for ConnAgent {
     async fn set(&mut self, key: String, value: String) -> anyhow::Result<Option<()>> {
-        let (sender, receiver) = oneshot::channel();
-        self.0.set(key.to_string(), value.to_string(), sender).await;
-        receiver.await??;
+        self.0
+            .set(key.to_string(), value.to_string())
+            .await
+            .map_or(Ok(()), |v| v.map_err(anyhow::Error::from))?;
         Ok(Some(()))
     }
 
     async fn delete(&mut self, key: String) -> anyhow::Result<()> {
-        let (sender, receiver) = oneshot::channel();
-        self.0.delete(key.to_string(), sender).await;
-        receiver.await??;
+        self.0.delete(key.to_string()).await;
         Ok(())
     }
 
     async fn get(&mut self, key: String) -> anyhow::Result<Option<String>> {
-        let (sender, receiver) = oneshot::channel();
-        self.0.get(key.to_string(), sender).await;
-
-        Ok(receiver.await??)
+        self.0
+            .get(key.to_string())
+            .await
+            .map_or(Ok(None), |v| v.map_err(anyhow::Error::from))
     }
 }
 

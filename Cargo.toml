@@ -1,18 +1,19 @@
 [package]
 name = "teamspeak-management-tools"
-version = "5.2.2"
+version = "5.2.3"
 edition = "2021"
 
 [dependencies]
 anyhow = "1"
-async-trait = "0.1.68"
-chrono = "0.4.19"
+async-trait = "0.1.80"
+chrono = "0.4.38"
 clap = { version = "4", features = ["cargo"] }
 #concurrent-queue = "^2.2"
 country-emoji = "^0.2"
 env_logger = "0.11.3"
 futures-util = "0.3"
 kstool = "0.2.1"
+kstool-helper-generator = "0.4.4"
 log = { version = "0.4", features = [
     "max_level_trace",
     "release_max_level_debug",
@@ -37,7 +38,6 @@ toml = "^0.8"
 tuple-conv = "1.0.1"
 #uuid = { version = "1", features = ["v4"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
-helper-generator = { git = "https://github.com/KunoiSayami/helper-generator.git" }
 
 [profile.release]
 lto = true

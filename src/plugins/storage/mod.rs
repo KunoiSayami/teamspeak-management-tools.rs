@@ -1,13 +1,13 @@
 use log::warn;
 
-use crate::DEFAULT_LEVELDB_LOCATION;
+use crate::DEFAULT_LEVEL_DB_LOCATION;
 
 use self::leveldb::LevelDB;
 
 mod leveldb;
 pub mod redis;
 
-pub trait MapType: std::fmt::Display + Send + Sync {}
+//pub trait MapType: std::fmt::Display + Send + Sync {}
 
 #[async_trait::async_trait]
 pub trait KVMap: Send + Sync {
@@ -40,7 +40,7 @@ impl Backend {
         } else {
             let (conn, db) = LevelDB::new(leveldb.map(|x| x.as_str()).unwrap_or_else(|| {
                 warn!("Should specify least one database backend, consider use leveldb=<file> in configure file");
-                DEFAULT_LEVELDB_LOCATION
+                DEFAULT_LEVEL_DB_LOCATION
             }).to_string());
 
             Ok((Self::LevelDB(db), Box::new(conn)))

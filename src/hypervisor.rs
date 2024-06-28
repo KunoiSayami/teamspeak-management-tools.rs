@@ -100,14 +100,20 @@ mod inner {
         #[cfg(not(feature = "tracker"))]
         let (user_tracker, tracker_controller) = PseudoEventHelper::new();
 
-        let auto_channel_handler = tokio::spawn(auto_channel_staff(
+        let auto_channel_future = auto_channel_staff(
             auto_channel_connection,
             trigger_receiver,
             private_message_sender.clone(),
             config.clone(),
             thread_id.clone(),
             kv_map,
-        ));
+        );
+
+        let auto_channel_handler = tokio::spawn(async move {
+            auto_channel_future
+                .await
+                .tap_err(|e| log::error!("Early error detected: {e:?}"))
+        });
 
         let auto_channel_instance =
             AutoChannelInstance::new(config.server().channels(), Some(trigger_sender));
