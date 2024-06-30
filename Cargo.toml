@@ -1,6 +1,6 @@
 [package]
 name = "teamspeak-management-tools"
-version = "5.2.3"
+version = "5.2.4"
 edition = "2021"
 
 [dependencies]
@@ -42,6 +42,10 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 [profile.release]
 lto = true
 panic = "abort"
+
+[profile.pre-release]
+inherits = "release"
+lto = false
 
 [features]
 default = []

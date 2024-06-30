@@ -271,7 +271,7 @@ mod thread {
             config_map.insert(config_id.clone(), bot_id.clone());
 
             // Check is bot has been created (maybe used by another configure)
-            if bot_map.get(&bot_id).is_none() {
+            if !bot_map.contains_key(&bot_id) {
                 bot_map.insert(
                     bot_id.clone(),
                     (

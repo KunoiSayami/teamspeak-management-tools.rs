@@ -134,7 +134,7 @@ mod inner {
         tokio::select! {
             ret = async {
                 notifier.notified().await;
-                info!("[{}] Recv SIGINT, send signal to thread.", &thread_id);
+                info!("[{thread_id}] Recv SIGINT, send signal to thread.",);
                 private_message_sender
                     .send(PrivateMessageRequest::Terminate)
                     .map_err(|_| error!("Send terminate error"))
@@ -255,7 +255,7 @@ mod types {
                 Self::Abort(abort_msg) => {
                     write!(f, "Abort from: {abort_msg}")
                 }
-                SubThreadExitReason::JoinError(e) => {
+                Self::JoinError(e) => {
                     write!(f, "JoinError: {e:?}")
                 }
             }

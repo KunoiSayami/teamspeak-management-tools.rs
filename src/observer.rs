@@ -332,7 +332,7 @@ pub async fn observer_thread(
         .await
         .map_err(|e| anyhow!("QueryClient failure: {e:?}"))?
     {
-        if client_map.get(&client.client_id()).is_some() || !client.client_is_user() {
+        if client_map.contains_key(&client.client_id()) || !client.client_is_user() {
             continue;
         }
 

@@ -179,7 +179,7 @@ pub async fn auto_channel_staff(
                             kv_map
                                 .delete(key.to_string())
                                 .await
-                                .tap(|_| trace!("[{}] Deleted", thread_id))
+                                .tap(|_| trace!("[{thread_id}] Deleted"))
                                 .tap_err(|e| {
                                     error!("[{thread_id}] Got error while delete from redis: {e:?}")
                                 })
