@@ -24,11 +24,12 @@ pub static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
 
 async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()> {
     let notify = Arc::new(Notify::new());
+    let exit_notify = Arc::new(Notify::new());
 
     SYSTEMD_MODE.set(systemd_mode).unwrap();
 
     let (kv_backend, controllers, telegram_handler) =
-        Controller::bootstrap_controller(config, notify.clone()).await?;
+        Controller::bootstrap_controller(config, notify.clone(), exit_notify.clone()).await?;
 
     tokio::select! {
         _ = async {
@@ -51,7 +52,10 @@ async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()
                 if controllers.iter().any(|x| x.is_finished()) {
                     break
                 }
-                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                if tokio::time::timeout(tokio::time::Duration::from_secs(10), exit_notify.notified()).await.is_ok(){
+                    tokio::time::sleep(tokio::time::Duration::from_micros(100)).await;
+                    break
+                }
             }
 
             // Wait up to 300 micro secs
@@ -64,7 +68,7 @@ async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()
             };
             ret
         } => {
-            ret.into_iter().collect::<Result<Vec<_>, _>>()?;
+            info!("Exited thread number: {}", ret.into_iter().collect::<Result<Vec<_>, _>>()?.len());
         }
     }
 

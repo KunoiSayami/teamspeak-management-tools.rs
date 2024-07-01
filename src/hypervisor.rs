@@ -305,6 +305,7 @@ mod controller {
         pub async fn bootstrap_controller(
             path: String,
             notify: Arc<Notify>,
+            exit_notify: Arc<Notify>,
         ) -> anyhow::Result<(Backend, Vec<Controller>, JoinHandle<anyhow::Result<()>>)> {
             let configures = Config::load_config(path).await?;
             let (kv_backend, connection) = configures.first().unwrap().1.load_kv_map().await?;
@@ -320,10 +321,12 @@ mod controller {
                 let notify = notify.clone();
                 let barrier = barrier.clone();
                 let helper = telegram_helper.clone();
+                let exit_notify = exit_notify.clone();
                 v.push(Controller::new(Box::pin(async move {
-                    if let Err(e) =
-                        bootstrap(config, notify, barrier, thread_id.clone(), helper, kv_map).await
-                    {
+                    let result =
+                        bootstrap(config, notify, barrier, thread_id.clone(), helper, kv_map).await;
+                    exit_notify.notify_waiters();
+                    if let Err(e) = result {
                         error!("In {thread_id}: {e:?}");
                         return Err(e.into());
                     }
