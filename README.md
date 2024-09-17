@@ -89,6 +89,17 @@ password = "114514" # TeamSpeak ServerQuery Password
 |         user         |     string     | Required | TeamSpeak ServerQuery Username                                                                                                                                                                                                                                                                                           |
 |       password       |     string     | Required | TeamSpeak ServerQuery Password                                                                                                                                                                                                                                                                                           |
 
+### Configuring the server
+
+By default TeamSpeak's server rate limits server query commands from the same IP, and this tool requires a faster rate than the default limit. If you are running this on a machine that's different from the server (i.e. the `server` above is not localhost), you might need to whitelist the IP of the machine you run `teamspeak-management-tools`. You need to modify the file `query_ip_allowlist.txt` in your TeamSpeak server directory. If you for example runs the tools from `192.0.2.1`, you need to change this file to
+
+```plain
+127.0.0.1
+::1
+192.0.2.1
+```
+
+CIDR notation is supported here too; if you runs this tool in a different docker container (with docker's default networking) for example, you can use `172.16.0.0/12`.
 
 ## License
 
