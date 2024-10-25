@@ -283,7 +283,7 @@ pub mod config {
             let p_config = Self::load(&path).await?;
             let id = Self::config_xxhash(p_config.get_id().as_bytes());
 
-            info!("Load {:?} as {:?}", &path, id);
+            info!("Load {path:?} as {id:?}");
             let mut ret = vec![(id, p_config.clone())];
 
             for path in p_config.additional() {

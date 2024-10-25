@@ -1,9 +1,7 @@
 mod types {
     use crate::types::{NotifyClientEnterView, NotifyClientLeftView};
     use teloxide::adaptors::DefaultParseMode;
-    use teloxide::payloads::SendMessage;
-    use teloxide::prelude::{ChatId, Requester, RequesterExt};
-    use teloxide::requests::JsonRequest;
+    use teloxide::prelude::{ChatId, Request, Requester, RequesterExt};
     use teloxide::types::ParseMode;
     use teloxide::Bot;
     use tokio::sync::mpsc;
@@ -37,7 +35,7 @@ mod types {
                         f,
                         "[{time}] <b>{nickname}</b>(<code>{client_identifier}</code>:{client_id})[{}] joined",
 
-                        country_emoji::flag(country).unwrap_or_else(|| country.to_string())
+                        country_emoji::flag(country).unwrap_or_else(|| country.into())
                     )
                 }
                 TelegramData::Left(time, view, nickname) => match view.reason_id() {
@@ -55,9 +53,7 @@ mod types {
                     }
                     3 => write!(
                         f,
-                        "[{}] <b>{}</b>({}) connection lost #timeout",
-                        time,
-                        nickname,
+                        "[{time}] <b>{nickname}</b>({}) connection lost #timeout",
                         view.client_id()
                     ),
                     5 | 6 => {
@@ -70,7 +66,7 @@ mod types {
                                invoker = view.invoker_name(),
                                invoker_uid = view.invoker_uid(),
                                reason = if view.reason().is_empty() {
-                                   " with no reason".to_string()
+                                   " with no reason".into()
                                } else {
                                    format!(": {}", view.reason())
                                }
@@ -195,8 +191,14 @@ mod types {
             })
         }
 
-        pub fn send(&self, message: String) -> JsonRequest<SendMessage> {
-            self.bot.send_message(ChatId(self.channel_id), message)
+        pub fn send(
+            &self,
+            message: String,
+        ) -> impl std::future::Future<Output = Result<teloxide::prelude::Message, teloxide::RequestError>>
+        {
+            self.bot
+                .send_message(ChatId(self.channel_id), message)
+                .send()
         }
     }
 
@@ -234,7 +236,6 @@ mod thread {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
-    use teloxide::prelude::Request;
     use tokio::sync::{mpsc, Notify};
 
     const QUERY_BOT_ERROR: &str = "Query bot error";
@@ -259,21 +260,18 @@ mod thread {
             }
 
             // Get bot self ID
-            let bot_id = match config.telegram().api_key().split_once(':') {
-                None => {
-                    warn!("Configure: [{config_id}] token in invalid format, ignore.",);
-                    continue;
-                }
-                Some((id, _)) => id.to_string(),
+            let Some((bot_id, _)) = config.telegram().api_key().split_once(':') else {
+                warn!("Configure: [{config_id}] token in invalid format, ignore.",);
+                continue;
             };
 
             // If bot id is correct, insert into configure map
-            config_map.insert(config_id.clone(), bot_id.clone());
+            config_map.insert(config_id.clone(), bot_id.to_string());
 
             // Check is bot has been created (maybe used by another configure)
-            if !bot_map.contains_key(&bot_id) {
+            if !bot_map.contains_key(bot_id) {
                 bot_map.insert(
-                    bot_id.clone(),
+                    bot_id.into(),
                     (
                         TelegramBot::new(
                             config.telegram().api_key(),
@@ -347,7 +345,7 @@ mod thread {
                             let message = pending.join("\n");
                             pending.clear();
 
-                            if let Err(e) = bot.send(message).send().await {
+                            if let Err(e) = bot.send(message).await {
                                 error!("Got error in {bot_id} send telegram message {e:?}");
                                 break;
                             }

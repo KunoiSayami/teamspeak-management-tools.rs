@@ -218,7 +218,7 @@ mod types {
 
     impl From<tokio::io::Error> for SubThreadExitReason {
         fn from(value: tokio::io::Error) -> Self {
-            Self::from(anyhow!("Got tokio::io::Error: {value:?}"))
+            Self::from(anyhow!("Got io::Error: {value:?}"))
         }
     }
 

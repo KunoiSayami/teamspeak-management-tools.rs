@@ -9,7 +9,7 @@ use crate::{AUTO_CHANNEL_NICKNAME_OVERRIDE, DEFAULT_AUTO_CHANNEL_NICKNAME};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
 use std::time::Duration;
-use tap::{Tap, TapFallible};
+use tap::TapFallible;
 use tokio::sync::mpsc;
 
 pub enum AutoChannelEvent {
@@ -177,9 +177,9 @@ pub async fn auto_channel_staff(
                             );
 
                             kv_map
-                                .delete(key.to_string())
+                                .delete(key)
                                 .await
-                                .tap(|_| trace!("[{thread_id}] Deleted"))
+                                .tap_ok(|_| trace!("[{thread_id}] Deleted"))
                                 .tap_err(|e| {
                                     error!("[{thread_id}] Got error while delete from redis: {e:?}")
                                 })
@@ -196,15 +196,13 @@ pub async fn auto_channel_staff(
                     }
                 },
                 Ok(None) => {
-                    error!("[{}] Channel closed!", thread_id);
+                    error!("[{thread_id}] Channel closed!");
                     break;
                 }
                 Err(_) => {
                     conn.who_am_i()
                         .await
-                        .map_err(|e| {
-                            anyhow!("[{thread_id}] Got error while doing keep alive {e:?}")
-                        })
+                        .tap_err(|e| error!("[{thread_id}] Got error while doing keep alive {e:?}"))
                         .ok();
                     if config.mute_porter().enable() {
                         mute_porter_function(&mut conn, config.mute_porter(), &thread_id).await?;
@@ -215,13 +213,12 @@ pub async fn auto_channel_staff(
         } else {
             skip_sleep = false;
         }
-        let clients = match conn
+        let Ok(clients) = conn
             .query_clients()
             .await
             .tap_err(|e| error!("[{thread_id}] Got error while query clients: {e:?}"))
-        {
-            Ok(clients) => clients,
-            Err(_) => continue,
+        else {
+            continue;
         };
 
         'outer: for client in clients {

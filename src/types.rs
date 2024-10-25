@@ -48,7 +48,7 @@ pub mod create_channel {
     impl FromQueryString for CreateChannel {}
 }
 /*
-pub mod.rs channel {
+pub mod channel {
     use super::FromQueryString;
     use serde::Deserialize;
 

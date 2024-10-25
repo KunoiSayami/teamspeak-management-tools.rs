@@ -214,9 +214,9 @@ impl SocketConn {
             .map(|mut v| v.remove(0))
     }
 
-    /*async fn query_channels(&mut self) -> QueryResult<Vec<Channel>> {
+    /* pub(crate) async fn query_channels(&mut self) -> QueryResult<Vec<Channel>> {
         self.query_operation_non_error("channellist\n\r").await
-    }*/
+    } */
 
     pub(crate) async fn create_channel(
         &mut self,
