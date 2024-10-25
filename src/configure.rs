@@ -9,6 +9,8 @@ pub mod config {
 
     use crate::plugins::{Backend, ForkConnection};
 
+    const DEFAULT_TELEGRAM_SERVER: &str = "https://api.telegram.org/";
+
     #[derive(Clone, Debug, Deserialize)]
     #[serde(untagged)]
     pub enum Numbers {
@@ -29,6 +31,7 @@ pub mod config {
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct Permission {
+        #[serde(alias = "channel-id")]
         channel_id: Numbers,
         map: Vec<(u64, i64)>,
     }
@@ -75,14 +78,21 @@ pub mod config {
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct Server {
+        #[serde(alias = "server-id")]
         server_id: Option<i64>,
+        #[serde(alias = "channel-id")]
         channel_id: Numbers,
+        #[serde(alias = "privilege-group-id")]
         privilege_group_id: i64,
+        #[serde(alias = "redis-server")]
         redis_server: Option<String>,
         leveldb: Option<String>,
+        #[serde(alias = "ignore-user")]
         ignore_user: Option<Vec<String>>,
+        #[serde(alias = "whitelist-ip")]
         whitelist_ip: Option<Vec<String>>,
         #[cfg(feature = "tracker")]
+        #[serde(alias = "track-channel-member")]
         track_channel_member: Option<String>,
     }
 
@@ -123,6 +133,7 @@ pub mod config {
 
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Message {
+        #[serde(alias = "move-to-channel")]
         move_to_channel: Option<String>,
     }
 
@@ -130,13 +141,15 @@ pub mod config {
         pub fn move_to_channel(&self) -> String {
             self.move_to_channel
                 .clone()
-                .unwrap_or_else(|| "You have been moved into your channel.".to_string())
+                .unwrap_or_else(|| "You have been moved into your channel.".into())
         }
     }
 
     #[derive(Clone, Debug, Deserialize)]
     pub struct Telegram {
+        #[serde(alias = "api-key", alias = "api")]
         api_key: String,
+        #[serde(alias = "api-server")]
         api_server: Option<String>,
         target: i64,
     }
@@ -150,7 +163,7 @@ pub mod config {
             if let Some(server) = &self.api_server {
                 return server.clone();
             }
-            String::from("https://api.telegram.org/")
+            DEFAULT_TELEGRAM_SERVER.into()
         }
 
         pub fn target(&self) -> i64 {
@@ -172,9 +185,9 @@ pub mod config {
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct MutePorter {
         enable: bool,
-        #[serde(rename = "monitor")]
+        #[serde(alias = "monitor", alias = "monitor-channel")]
         monitor_channel: i64,
-        #[serde(rename = "target")]
+        #[serde(alias = "target", alias = "target-channel")]
         target_channel: i64,
         #[serde(default)]
         whitelist: Vec<i64>,
@@ -202,11 +215,13 @@ pub mod config {
     pub struct Config {
         server: Server,
         misc: Misc,
-        #[serde(default)]
+        #[serde(default, alias = "mute-porter")]
         mute_porter: MutePorter,
+        #[serde(alias = "custom-message")]
         custom_message: Option<Message>,
         permissions: Option<Vec<Permission>>,
         telegram: Telegram,
+        #[serde(alias = "raw-query")]
         raw_query: RawQuery,
         #[serde(default)]
         additional: Vec<String>,
