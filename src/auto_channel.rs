@@ -15,6 +15,7 @@ use tokio::sync::mpsc;
 pub enum AutoChannelEvent {
     Update(ClientBasicInfo),
     DeleteChannel(i64, String),
+    ShouldRefresh,
     Terminate,
 }
 
@@ -52,6 +53,7 @@ impl AutoChannelInstance {
             return Ok(false);
         }
         if !self.channel_ids.iter().any(|id| id == &view.channel_id()) {
+            self.send_signal(AutoChannelEvent::ShouldRefresh).await?;
             return Ok(false);
         }
         self.send_signal(AutoChannelEvent::Update(view)).await
@@ -153,6 +155,7 @@ pub async fn auto_channel_staff(
     info!("[{thread_id}] Connected: {}", who_am_i.client_id());
     debug!("[{thread_id}] Monitor: {}", monitor_channels.len());
 
+    let mut should_refresh = false;
     let mut skip_sleep = true;
     loop {
         if !skip_sleep {
@@ -195,6 +198,9 @@ pub async fn auto_channel_staff(
                             .tap_err(|_| error!("[{thread_id}] Got error in request send message"))
                             .ok();
                     }
+                    AutoChannelEvent::ShouldRefresh => {
+                        should_refresh = true;
+                    }
                 },
                 Ok(None) => {
                     error!("[{thread_id}] Channel closed!");
@@ -208,7 +214,9 @@ pub async fn auto_channel_staff(
                     if config.mute_porter().enable() {
                         mute_porter_function(&mut conn, config.mute_porter(), &thread_id).await?;
                     }
-                    continue;
+                    if !should_refresh {
+                        continue;
+                    }
                 }
             }
         } else {
@@ -338,6 +346,7 @@ pub async fn auto_channel_staff(
         if let Ok(channels) = conn.query_channels().await {
             user_map.update(channels, clients).await;
         }
+        should_refresh = false;
     }
     conn.logout().await?;
     Ok(())

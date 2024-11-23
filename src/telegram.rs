@@ -613,7 +613,7 @@ mod thread {
                     //warn!("State is empty, skip");
                     continue;
                 };
-                v.push(map.read().await.unwrap().to_string());
+                v.push(format!("{config}\n{}", map.read().await.unwrap()));
             }
 
             bot.send_message(msg.chat.id, v.join("\n\n")).await?;

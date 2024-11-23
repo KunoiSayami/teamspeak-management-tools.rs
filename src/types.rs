@@ -62,8 +62,8 @@ pub mod channel {
         /* pid: i64, */
         /* channel_order: i64, */
         channel_name: String,
-        total_clients: i64,
-        /* channel_needed_subscribe_power: i64, */
+        /*total_clients: i64,
+        channel_needed_subscribe_power: i64, */
     }
 
     impl Channel {
@@ -79,10 +79,10 @@ pub mod channel {
         pub fn channel_name(&self) -> &str {
             &self.channel_name
         }
-        pub fn total_clients(&self) -> i64 {
+        /*pub fn total_clients(&self) -> i64 {
             self.total_clients
         }
-        /*pub fn channel_needed_subscribe_power(&self) -> i64 {
+        pub fn channel_needed_subscribe_power(&self) -> i64 {
             self.channel_needed_subscribe_power
         }*/
     }
@@ -720,11 +720,11 @@ mod user_state {
     }
 
     impl UserState {
-        pub fn new() -> Self {
+        /* pub fn new() -> Self {
             Self {
                 ..Default::default()
             }
-        }
+        } */
 
         pub fn update(&mut self, channels: Vec<Channel>, clients: Vec<Client>) -> bool {
             let mut obj = HashMap::new();
@@ -972,5 +972,5 @@ use serde::Deserialize;
 pub use server_info::ServerInfo;
 pub use status_result::{QueryError, QueryResult};
 pub use to_map::ToNameMap;
-pub use user_state::{ConfigMappedUserState, SafeUserState, UserState};
+pub use user_state::{ConfigMappedUserState, SafeUserState};
 pub use whoami::WhoAmI;
