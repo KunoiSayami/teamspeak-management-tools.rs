@@ -538,7 +538,10 @@ mod thread {
                 let chat_map = Arc::new(Self::build_chat_map(config_with_chat));
                 let handle_message = Update::filter_message().branch(
                     dptree::entry()
-                        .filter(|msg: Message| msg.chat.is_private())
+                        .filter(|msg: Message| {
+                            //log::debug!("{:?}", msg.chat);
+                            !msg.chat.is_channel()
+                        })
                         .filter_command::<Command>()
                         .endpoint(
                             |msg: Message,
@@ -559,6 +562,9 @@ mod thread {
 
                 let dispatcher = Dispatcher::builder(bot, dptree::entry().branch(handle_message))
                     .dependencies(dptree::deps![chat_map, channel_map])
+                    /* .default_handler(|update| async move {
+                        log::debug!("Unhandled message {:?}", update.from());
+                    }) */
                     .default_handler(|_| async {});
 
                 //#[cfg(not(debug_assertions))]

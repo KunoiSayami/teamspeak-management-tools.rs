@@ -701,6 +701,7 @@ mod user_state {
         sync::{Arc, LazyLock},
     };
 
+    use chrono::DateTime;
     use tokio::sync::RwLock;
 
     use super::{Channel, Client, ToNameMap};
@@ -760,7 +761,7 @@ mod user_state {
             for (channel, clients) in &self.mapper {
                 write!(
                     f,
-                    "<b>{}</b>(<code>{}</code>):",
+                    "<b>{}</b>(<code>{}</code>): ",
                     self.channel
                         .get(channel)
                         .unwrap_or(&DEFAULT_NO_NAME_PLACEHOLDER),
@@ -778,7 +779,15 @@ mod user_state {
                 }
                 writeln!(f)?;
             }
-            Ok(())
+            let last_update: DateTime<chrono::prelude::Local> =
+                DateTime::from_timestamp(self.last_update() as i64, 0)
+                    .unwrap()
+                    .into();
+            writeln!(
+                f,
+                "Last update: {}",
+                last_update.format("%Y-%m-%d %H:%M:%S")
+            )
         }
     }
 
