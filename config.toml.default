@@ -27,8 +27,10 @@ privilege-group-id = 5
 [telegram]
 api-key = ""
 target = 0
-api-server = ""
+# api-server = ""
 # responsible = false
+# allowed-chat = []
+
 
 [misc]
 # interval = 5
