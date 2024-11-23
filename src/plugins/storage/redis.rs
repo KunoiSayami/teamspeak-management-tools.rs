@@ -37,7 +37,8 @@ impl KVMap for RedisAgent {
     }
 
     async fn delete(&mut self, key: String) -> anyhow::Result<()> {
-        self.conn.del(key.to_string()).await?;
+        // https://github.com/redis-rs/redis-rs/issues/1228
+        let _: () = self.conn.del(key.to_string()).await?;
         Ok(())
     }
 

@@ -205,6 +205,10 @@ mod types {
         pub fn into_inner(self) -> BotType {
             self.bot
         }
+
+        pub fn valid(&self) -> bool {
+            self.channel_id != 0
+        }
     }
 
     pub(super) struct PoolIter<'a> {
@@ -367,6 +371,11 @@ mod thread {
                 _ = interval.tick() => {
                     for (bot_id, (bot, queue)) in &mut bot_map {
                         if queue.is_empty() {
+                            continue;
+                        }
+
+                        if !bot.valid() {
+                            queue.clear();
                             continue;
                         }
 

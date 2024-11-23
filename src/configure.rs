@@ -154,7 +154,7 @@ pub mod config {
         target: i64,
         #[serde(default)]
         responsible: bool,
-        #[serde(default)]
+        #[serde(default, alias = "allowed-chat")]
         allowed_chat: Vec<i64>,
     }
 
