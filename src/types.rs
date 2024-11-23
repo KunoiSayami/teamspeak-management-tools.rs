@@ -47,46 +47,68 @@ pub mod create_channel {
 
     impl FromQueryString for CreateChannel {}
 }
-/*
+
 pub mod channel {
+    use std::hash::Hash;
+
     use super::FromQueryString;
     use serde::Deserialize;
 
     //#[allow(dead_code)]
     #[derive(Clone, Debug, Default, Deserialize)]
     pub struct Channel {
-        cid: i64,
-        pid: i64,
-        channel_order: i64,
+        #[serde(rename = "cid")]
+        channel_id: i64,
+        /* pid: i64, */
+        /* channel_order: i64, */
         channel_name: String,
         total_clients: i64,
-        channel_needed_subscribe_power: i64,
+        /* channel_needed_subscribe_power: i64, */
     }
 
     impl Channel {
         pub fn cid(&self) -> i64 {
-            self.cid
+            self.channel_id
         }
-        pub fn pid(&self) -> i64 {
+        /* pub fn pid(&self) -> i64 {
             self.pid
         }
         pub fn channel_order(&self) -> i64 {
             self.channel_order
-        }
+        }*/
         pub fn channel_name(&self) -> &str {
             &self.channel_name
         }
         pub fn total_clients(&self) -> i64 {
             self.total_clients
         }
-        pub fn channel_needed_subscribe_power(&self) -> i64 {
+        /*pub fn channel_needed_subscribe_power(&self) -> i64 {
             self.channel_needed_subscribe_power
-        }
+        }*/
     }
 
     impl FromQueryString for Channel {}
+
+    impl Hash for Channel {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.channel_id.hash(state);
+        }
+    }
+
+    impl PartialEq for Channel {
+        fn eq(&self, other: &Self) -> bool {
+            self.channel_id == other.channel_id
+        }
+    }
+
+    impl Eq for Channel {}
+
+    impl PartialEq<i64> for Channel {
+        fn eq(&self, other: &i64) -> bool {
+            self.channel_id == *other
+        }
+    }
 }
-*/
 
 // TODO: Rename this
 mod client {
@@ -673,8 +695,257 @@ mod pseudo_event_helper {
     }
 }
 
+mod user_state {
+    use std::{
+        collections::HashMap,
+        sync::{Arc, LazyLock},
+    };
+
+    use tokio::sync::RwLock;
+
+    use super::{Channel, Client, ToNameMap};
+
+    const DEFAULT_NO_NAME_PLACEHOLDER: LazyLock<String> = LazyLock::new(|| "N/A".to_string());
+
+    #[derive(Clone, Debug, Default)]
+    pub struct UserState {
+        /// Channel name map
+        channel: HashMap<i64, String>,
+        /// Client name map
+        client: HashMap<i64, String>,
+        /// Real map
+        mapper: HashMap<i64, Vec<i64>>,
+        last_update: u64,
+    }
+
+    impl UserState {
+        pub fn new() -> Self {
+            Self {
+                ..Default::default()
+            }
+        }
+
+        pub fn update(&mut self, channels: Vec<Channel>, clients: Vec<Client>) -> bool {
+            let mut obj = HashMap::new();
+            /* for channel in &channels {
+                if channel.total_clients() > 0 {
+                    obj.mapper.insert(channel.cid(), Vec::new());
+                }
+            } */
+            for client in &clients {
+                if !client.client_is_user() {
+                    continue;
+                }
+                obj.entry(client.channel_id())
+                    .or_insert_with(Vec::new)
+                    .push(client.client_id());
+            }
+            self.last_update = kstool::time::get_current_second();
+            if obj.eq(&self.mapper) {
+                return false;
+            }
+            self.mapper = obj;
+            self.channel = channels.to_name_map();
+            self.client = clients.to_name_map();
+            true
+        }
+
+        pub fn last_update(&self) -> u64 {
+            self.last_update
+        }
+    }
+
+    impl std::fmt::Display for UserState {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            for (channel, clients) in &self.mapper {
+                write!(
+                    f,
+                    "<b>{}</b>(<code>{}</code>):",
+                    self.channel
+                        .get(channel)
+                        .unwrap_or(&DEFAULT_NO_NAME_PLACEHOLDER),
+                    channel
+                )?;
+                for client in clients {
+                    write!(
+                        f,
+                        "{}(<code>{}</code>)",
+                        self.client
+                            .get(client)
+                            .unwrap_or(&DEFAULT_NO_NAME_PLACEHOLDER),
+                        client
+                    )?;
+                }
+                writeln!(f)?;
+            }
+            Ok(())
+        }
+    }
+
+    #[derive(Clone)]
+    pub struct SafeUserState {
+        inner: Option<Arc<RwLock<UserState>>>,
+    }
+
+    impl SafeUserState {
+        pub async fn update(&self, channels: Vec<Channel>, clients: Vec<Client>) -> bool {
+            if let Some(ref inner) = self.inner {
+                let mut guard = inner.write().await;
+                return guard.update(channels, clients);
+            }
+            false
+        }
+
+        pub async fn read(&self) -> Option<tokio::sync::RwLockReadGuard<'_, UserState>> {
+            if let Some(ref ret) = self.inner {
+                Some(ret.read().await)
+            } else {
+                None
+            }
+        }
+
+        /* pub fn try_read(
+            &self,
+        ) -> Option<
+            Box<
+                dyn std::future::IntoFuture<Output = tokio::sync::RwLockReadGuard<'_, UserState>>
+                    + '_,
+            >,
+        > {
+            if let Some(ref ret) = self.inner {
+                Some(Box::new(ret.read()))
+            } else {
+                None
+            }
+        } */
+
+        pub fn create_none() -> Self {
+            Self { inner: None }
+        }
+
+        pub fn create() -> Self {
+            Self {
+                inner: Some(Default::default()),
+            }
+        }
+
+        pub fn enabled(&self) -> bool {
+            self.inner.is_some()
+        }
+    }
+
+    pub type ConfigMappedUserState = HashMap<String, SafeUserState>;
+}
+
+mod to_map {
+    use std::collections::HashMap;
+
+    use super::{Channel, Client};
+
+    pub trait HasID {
+        fn id(&self) -> i64;
+    }
+
+    impl HasID for Channel {
+        fn id(&self) -> i64 {
+            self.cid()
+        }
+    }
+
+    impl HasID for Client {
+        fn id(&self) -> i64 {
+            self.client_id()
+        }
+    }
+
+    pub trait HasName {
+        fn name(&self) -> String;
+    }
+
+    impl HasName for Channel {
+        fn name(&self) -> String {
+            self.channel_name().into()
+        }
+    }
+
+    impl HasName for Client {
+        fn name(&self) -> String {
+            self.client_nickname().into()
+        }
+    }
+
+    /* pub trait ToMap<V> {
+        fn to_map(self) -> HashMap<i64, V>;
+    }
+
+    impl<V: HasID> ToMap<V> for Vec<V> {
+        fn to_map(self) -> HashMap<i64, V> {
+            let mut m = HashMap::new();
+            for element in self {
+                m.insert(element.id(), element);
+            }
+            m
+        }
+    } */
+
+    pub trait ToNameMap {
+        fn to_name_map(&self) -> HashMap<i64, String>;
+    }
+
+    impl<T: HasName + HasID> ToNameMap for Vec<T> {
+        fn to_name_map(&self) -> HashMap<i64, String> {
+            let mut m = HashMap::new();
+            for element in self {
+                m.insert(element.id(), element.name());
+            }
+            m
+        }
+    }
+}
+
+mod arg {
+    use std::sync::Arc;
+
+    use tokio::sync::{Barrier, Notify};
+
+    use crate::telegram::TelegramHelper;
+
+    //use super::UserState;
+
+    /* pub struct ArgPass2AutoChannel {
+        user_state: Arc<RwLock<UserState>>,
+        pub thread_id: String,
+    }
+
+    impl ArgPass2AutoChannel {
+        pub fn new(user_state: Arc<RwLock<UserState>>, thread_id: String) -> Self {
+            Self {
+                user_state,
+                thread_id,
+            }
+        }
+    } */
+
+    #[derive(Clone)]
+    pub struct ArgPass2Controller {
+        pub notify: Arc<Notify>,
+        pub barrier: Arc<Barrier>,
+        pub helper: TelegramHelper,
+    }
+
+    impl ArgPass2Controller {
+        pub fn new(notify: Arc<Notify>, barrier: Arc<Barrier>, helper: TelegramHelper) -> Self {
+            Self {
+                notify,
+                barrier,
+                helper,
+            }
+        }
+    }
+}
+
 pub use ban_entry::BanEntry;
-//pub use channel::Channel;
+pub use channel::Channel;
 pub use client::Client;
 pub use client_info::ClientInfo;
 pub use client_query_result::DatabaseId;
@@ -684,10 +955,13 @@ pub use notifies::{
 };
 pub use pseudo_event_helper::EventHelperTrait;
 
+pub use arg::ArgPass2Controller;
 #[cfg(not(feature = "tracker"))]
 pub use pseudo_event_helper::PseudoEventHelper;
 pub use query_status::QueryStatus;
 use serde::Deserialize;
 pub use server_info::ServerInfo;
 pub use status_result::{QueryError, QueryResult};
+pub use to_map::ToNameMap;
+pub use user_state::{ConfigMappedUserState, SafeUserState, UserState};
 pub use whoami::WhoAmI;

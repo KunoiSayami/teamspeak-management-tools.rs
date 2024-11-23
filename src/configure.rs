@@ -152,6 +152,10 @@ pub mod config {
         #[serde(alias = "api-server")]
         api_server: Option<String>,
         target: i64,
+        #[serde(default)]
+        responsible: bool,
+        #[serde(default)]
+        allowed_chat: Vec<i64>,
     }
 
     impl Telegram {
@@ -168,6 +172,14 @@ pub mod config {
 
         pub fn target(&self) -> i64 {
             self.target
+        }
+
+        pub fn responsible(&self) -> bool {
+            self.responsible
+        }
+
+        pub fn allowed_chat(&self) -> &[i64] {
+            &self.allowed_chat
         }
     }
 

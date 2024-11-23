@@ -4,7 +4,7 @@ use crate::observer::PrivateMessageRequest;
 use crate::plugins::KVMap;
 use crate::socketlib::SocketConn;
 use crate::types::notifies::ClientBasicInfo;
-use crate::types::QueryResult;
+use crate::types::{QueryResult, SafeUserState};
 use crate::{AUTO_CHANNEL_NICKNAME_OVERRIDE, DEFAULT_AUTO_CHANNEL_NICKNAME};
 use anyhow::anyhow;
 use log::{debug, error, info, trace, warn};
@@ -128,6 +128,7 @@ pub async fn auto_channel_staff(
     config: Config,
     thread_id: String,
     mut kv_map: Box<dyn KVMap>,
+    user_map: SafeUserState,
 ) -> anyhow::Result<()> {
     let monitor_channels = config.server().channels();
     let privilege_group = config.server().privilege_group_id();
@@ -221,7 +222,7 @@ pub async fn auto_channel_staff(
             continue;
         };
 
-        'outer: for client in clients {
+        'outer: for client in &clients {
             if client.client_database_id() == who_am_i.client_database_id()
                 || !monitor_channels.iter().any(|v| *v == client.channel_id())
                 || client.client_type() == 1
@@ -250,7 +251,7 @@ pub async fn auto_channel_staff(
                 let channel_id = loop {
                     let create_channel = match conn.create_channel(&name, client.channel_id()).await
                     {
-                        Ok(ret) => ret,
+                        Ok(Some(ret)) => ret.cid(),
                         Err(e) => {
                             if e.code() == 771 {
                                 name.push('1');
@@ -259,9 +260,10 @@ pub async fn auto_channel_staff(
                             error!("[{thread_id}] Got error while create {name:?} channel: {e:?}",);
                             continue 'outer;
                         }
+                        _ => unreachable!(),
                     };
 
-                    break create_channel.unwrap().cid();
+                    break create_channel;
                 };
 
                 conn.set_client_channel_group(
@@ -298,17 +300,14 @@ pub async fn auto_channel_staff(
                 ret.unwrap()
             };
 
-            match conn.move_client(client.client_id(), target_channel).await {
-                Ok(ret) => ret,
-                Err(e) => {
-                    if e.code() == 768 {
-                        kv_map.delete(key.clone()).await?;
-                        skip_sleep = true;
-                        continue;
-                    }
-                    error!("[{thread_id}] Got error while move client: {e:?}");
+            if let Err(e) = conn.move_client(client.client_id(), target_channel).await {
+                if e.code() == 768 {
+                    kv_map.delete(key.clone()).await?;
+                    skip_sleep = true;
                     continue;
                 }
+                error!("[{thread_id}] Got error while move client: {e:?}");
+                continue;
             };
 
             private_message_sender
@@ -331,6 +330,13 @@ pub async fn auto_channel_staff(
                 "[{thread_id}] Move {} to {target_channel}",
                 client.client_nickname(),
             );
+        }
+
+        if !user_map.enabled() {
+            continue;
+        }
+        if let Ok(channels) = conn.query_channels().await {
+            user_map.update(channels, clients).await;
         }
     }
     conn.logout().await?;

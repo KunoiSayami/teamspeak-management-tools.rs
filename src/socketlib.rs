@@ -1,5 +1,6 @@
 use crate::types::{
-    Client, ClientInfo, CreateChannel, DatabaseId, QueryError, QueryResult, ServerInfo, WhoAmI,
+    Channel, Client, ClientInfo, CreateChannel, DatabaseId, QueryError, QueryResult, ServerInfo,
+    WhoAmI,
 };
 use crate::types::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
@@ -214,9 +215,9 @@ impl SocketConn {
             .map(|mut v| v.remove(0))
     }
 
-    /* pub(crate) async fn query_channels(&mut self) -> QueryResult<Vec<Channel>> {
+    pub(crate) async fn query_channels(&mut self) -> QueryResult<Vec<Channel>> {
         self.query_operation_non_error("channellist\n\r").await
-    } */
+    }
 
     pub(crate) async fn create_channel(
         &mut self,

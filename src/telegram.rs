@@ -34,7 +34,6 @@ mod types {
                     write!(
                         f,
                         "[{time}] <b>{nickname}</b>(<code>{client_identifier}</code>:{client_id})[{}] joined",
-
                         country_emoji::flag(country).unwrap_or_else(|| country.into())
                     )
                 }
@@ -175,9 +174,11 @@ mod types {
         }
     }
 
+    pub type BotType = DefaultParseMode<Bot>;
+
     #[derive(Clone, Debug)]
     pub(super) struct TelegramBot {
-        bot: DefaultParseMode<Bot>,
+        bot: BotType,
         channel_id: i64,
     }
 
@@ -200,6 +201,10 @@ mod types {
                 .send_message(ChatId(self.channel_id), message)
                 .send()
         }
+
+        pub fn into_inner(self) -> BotType {
+            self.bot
+        }
     }
 
     pub(super) struct PoolIter<'a> {
@@ -219,35 +224,44 @@ mod types {
         type Item = (&'a str, &'a String);
 
         fn next(&mut self) -> Option<Self::Item> {
-            if let Some(s) = self.iter.next() {
-                Some((self.name, s))
-            } else {
-                None
-            }
+            self.iter.next().map(|s| (self.name, s))
         }
     }
 }
 
 mod thread {
     use super::types::{CombineData, TelegramBot, TelegramData, TelegramHelper};
-    use crate::configure::Config;
+    use crate::{
+        configure::Config,
+        types::{ConfigMappedUserState, SafeUserState},
+    };
     use anyhow::anyhow;
+    use bot_impl::ResponderPool;
     use log::{debug, error, info, warn};
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::{mpsc, Notify};
+    use tokio::sync::{broadcast, mpsc, Notify};
 
     const QUERY_BOT_ERROR: &str = "Query bot error";
 
     pub fn telegram_bootstrap(
         configs: &Vec<(String, Config)>,
         notifier: Arc<Notify>,
-    ) -> anyhow::Result<(tokio::task::JoinHandle<anyhow::Result<()>>, TelegramHelper)> {
+    ) -> anyhow::Result<(
+        tokio::task::JoinHandle<anyhow::Result<()>>,
+        TelegramHelper,
+        ConfigMappedUserState,
+    )> {
         // A hashmap container configure and bot relationship
         let mut config_map = HashMap::new();
         // A hashmap container bot instance
         let mut bot_map = HashMap::new();
+
+        // A hashmap container channel-client relationship
+        let mut user_state_map = ConfigMappedUserState::new();
+
+        let mut bot_responder = HashMap::new();
         // A hashmap container bot id with messages relationship (Queue is configure id with unsent message)
         //let mut pool_map: HashMap<String, HashMap<String, MessageQueue<String>>> = HashMap::new();
         for (_, config) in configs {
@@ -256,6 +270,7 @@ mod thread {
             // Check is config available in Telegram
             if config.telegram().api_key().is_empty() {
                 info!("Configure: [{config_id}] token is empty, skipped all send message request.",);
+                user_state_map.insert(config_id, SafeUserState::create_none());
                 continue;
             }
 
@@ -264,6 +279,17 @@ mod thread {
                 warn!("Configure: [{config_id}] token in invalid format, ignore.",);
                 continue;
             };
+
+            if config.telegram().responsible() {
+                user_state_map.insert(config_id.clone(), SafeUserState::create());
+                // If responsible, insert to bot responder
+                bot_responder
+                    .entry(bot_id.to_string())
+                    .or_insert_with(Vec::new)
+                    .push((config_id.clone(), config.telegram().allowed_chat().to_vec()));
+            } else {
+                user_state_map.insert(config_id.clone(), SafeUserState::create_none());
+            }
 
             // If bot id is correct, insert into configure map
             config_map.insert(config_id.clone(), bot_id.to_string());
@@ -290,9 +316,15 @@ mod thread {
         let handler = if config_map.is_empty() {
             tokio::spawn(void_thread(receiver, notifier))
         } else {
-            tokio::spawn(telegram_thread(receiver, bot_map, config_map, notifier))
+            tokio::spawn(telegram_thread(
+                receiver,
+                bot_map,
+                config_map,
+                notifier,
+                (user_state_map.clone(), bot_responder),
+            ))
         };
-        Ok((handler, sender))
+        Ok((handler, sender, user_state_map))
     }
 
     async fn telegram_thread(
@@ -300,6 +332,10 @@ mod thread {
         mut bot_map: HashMap<String, (TelegramBot, Vec<(String, TelegramData)>)>,
         config_map: HashMap<String, String>,
         notifier: Arc<Notify>,
+        (user_state, bot_responder): (
+            ConfigMappedUserState,
+            HashMap<String, Vec<(String, Vec<i64>)>>,
+        ),
     ) -> anyhow::Result<()> {
         if bot_map.is_empty() {
             info!("No configure found, Send to telegram disabled.");
@@ -308,19 +344,22 @@ mod thread {
         //let mut queue = Vec::new();
         let mut pending = Vec::new();
         let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+        let (exit_sender, exit_signal) = broadcast::channel(5);
+        let response_pool =
+            ResponderPool::spawn(user_state, bot_responder, bot_map.clone(), exit_signal).await;
         loop {
             tokio::select! {
                 cmd = receiver.recv() => {
-                    if let Some(CombineData::Send(config_id, data)) = cmd {
-                        if let Some(bot_id) = config_map.get(&config_id) {
-                            bot_map
-                                .get_mut(bot_id)
-                                .expect(QUERY_BOT_ERROR)
-                                .1
-                                .push((config_id, data));
-                        }
-                    } else {
+                    let Some(CombineData::Send(config_id, data)) = cmd else {
                         break;
+                    };
+                    if let Some(bot_id) = config_map.get(&config_id) {
+                        bot_map
+                            .get_mut(bot_id)
+                            .expect(QUERY_BOT_ERROR)
+                            .1
+                            .push((config_id, data));
                     }
                 }
 
@@ -336,7 +375,7 @@ mod thread {
                         for chunk in queue.chunks(8) {
                             let mut prev = &String::new();
                             for (config_id, data) in chunk {
-                                if ! config_id.eq(prev) {
+                                if !config_id.eq(prev) {
                                     pending.push(config_id.clone());
                                     prev = config_id;
                                 }
@@ -363,6 +402,12 @@ mod thread {
                 }
             }
         }
+        exit_sender.send(true).ok();
+
+        match tokio::time::timeout(Duration::from_secs(3), response_pool.wait()).await {
+            Ok(ret) => ret?,
+            Err(_) => warn!("Responder exit timeout"),
+        };
 
         debug!("Send message daemon exiting...");
         Ok(())
@@ -385,6 +430,190 @@ mod thread {
             }
         }
         Ok(())
+    }
+
+    /* async fn start_response_handler(
+           user_state: ConfigMappedUserState,
+           bot_responder: HashMap<String, Vec<(String, Vec<i64>)>>,
+           exit_signal: broadcast::Receiver<bool>,
+       ) -> anyhow::Result<()> {
+           for key in bot_responder.keys() {}
+
+           Ok(())
+       }
+    */
+    mod bot_impl {
+        use std::{collections::HashMap, sync::Arc};
+
+        use log::warn;
+        use tap::TapFallible as _;
+        use teloxide::{
+            dispatching::{HandlerExt as _, UpdateFilterExt as _},
+            dptree,
+            prelude::{Dispatcher, Requester as _},
+            types::{Message, Update},
+            utils::command::BotCommands,
+        };
+        use tokio::{sync::broadcast, task::JoinHandle};
+
+        use crate::{telegram::types::BotType, types::ConfigMappedUserState};
+
+        use super::{TelegramBot, TelegramData};
+
+        #[derive(BotCommands, Clone)]
+        #[command(rename_rule = "lowercase")]
+        enum Command {
+            Ping,
+            List,
+        }
+
+        pub struct ResponderPool {
+            handles: Vec<Responder>,
+        }
+
+        impl ResponderPool {
+            pub async fn wait(self) -> anyhow::Result<()> {
+                for handle in self.handles {
+                    handle.join().await?;
+                }
+                Ok(())
+            }
+
+            pub async fn spawn(
+                channel_map: ConfigMappedUserState,
+                bots: HashMap<String, Vec<(String, Vec<i64>)>>,
+                bot_map: HashMap<String, (TelegramBot, Vec<(String, TelegramData)>)>,
+                exit_signal: broadcast::Receiver<bool>,
+            ) -> Self {
+                let mut v = vec![];
+                for (bot_id, config_with_chat) in bots {
+                    v.push(Responder::spawn(
+                        bot_map.get(&bot_id).unwrap().0.clone(),
+                        config_with_chat,
+                        channel_map.clone(),
+                        exit_signal.resubscribe(),
+                    ));
+                }
+                Self { handles: v }
+            }
+        }
+
+        pub struct Responder {
+            handle: JoinHandle<anyhow::Result<()>>,
+        }
+
+        impl Responder {
+            pub fn spawn(
+                bot: TelegramBot,
+                config_with_chat: Vec<(String, Vec<i64>)>,
+                channel_map: ConfigMappedUserState,
+                exit_signal: broadcast::Receiver<bool>,
+            ) -> Self {
+                let handle =
+                    tokio::spawn(Self::run(bot, config_with_chat, channel_map, exit_signal));
+                Self { handle }
+            }
+
+            fn build_chat_map(
+                config_with_chat: Vec<(String, Vec<i64>)>,
+            ) -> HashMap<i64, Vec<String>> {
+                let mut m = HashMap::new();
+                for (config_id, chats) in config_with_chat {
+                    for chat in chats {
+                        m.entry(chat)
+                            .or_insert_with(Vec::new)
+                            .push(config_id.clone());
+                    }
+                }
+                m
+            }
+
+            async fn run(
+                bot: TelegramBot,
+                config_with_chat: Vec<(String, Vec<i64>)>,
+                channel_map: ConfigMappedUserState,
+                mut exit_signal: broadcast::Receiver<bool>,
+            ) -> anyhow::Result<()> {
+                let bot = bot.into_inner();
+                let chat_map = Arc::new(Self::build_chat_map(config_with_chat));
+                let handle_message = Update::filter_message().branch(
+                    dptree::entry()
+                        .filter(|msg: Message| msg.chat.is_private())
+                        .filter_command::<Command>()
+                        .endpoint(
+                            |msg: Message,
+                             bot: BotType,
+                             cmd: Command,
+                             chat_map: Arc<HashMap<i64, Vec<String>>>,
+                             channel_map: ConfigMappedUserState| async move {
+                                match cmd {
+                                    Command::Ping => handle_ping(bot, msg).await,
+                                    Command::List => {
+                                        handle_list(bot, msg, chat_map, channel_map).await
+                                    }
+                                }
+                                .tap_err(|e| log::error!("Handle command error: {e:?}"))
+                            },
+                        ),
+                );
+
+                let dispatcher = Dispatcher::builder(bot, dptree::entry().branch(handle_message))
+                    .dependencies(dptree::deps![chat_map, channel_map])
+                    .default_handler(|_| async {});
+
+                //#[cfg(not(debug_assertions))]
+                //dispatcher.enable_ctrlc_handler().build().dispatch().await;
+
+                //#[cfg(debug_assertions)]
+                tokio::select! {
+                    _ = async move {
+                        dispatcher.build().dispatch().await
+                    } => {}
+                    _ = exit_signal.recv() => {}
+                }
+                Ok(())
+            }
+            pub async fn join(self) -> anyhow::Result<()> {
+                self.handle.await?
+            }
+        }
+
+        pub async fn handle_ping(bot: BotType, msg: Message) -> anyhow::Result<()> {
+            bot.send_message(
+                msg.chat.id,
+                format!(
+                    "Chat id: <code>{id}</code>\nVersion: {version}",
+                    id = msg.chat.id.0,
+                    version = env!("CARGO_PKG_VERSION")
+                ),
+            )
+            .await?;
+            Ok(())
+        }
+
+        pub async fn handle_list(
+            bot: BotType,
+            msg: Message,
+            chat_map: Arc<HashMap<i64, Vec<String>>>,
+            channel_map: ConfigMappedUserState,
+        ) -> anyhow::Result<()> {
+            let Some(configs) = chat_map.get(&msg.chat.id.0) else {
+                warn!("Deny unauthorized access chat {}", msg.chat.id);
+                return Ok(());
+            };
+            let mut v = vec![];
+            for config in configs {
+                let Some(map) = channel_map.get(config).filter(|s| s.enabled()) else {
+                    //warn!("State is empty, skip");
+                    continue;
+                };
+                v.push(map.read().await.unwrap().to_string());
+            }
+
+            bot.send_message(msg.chat.id, v.join("\n\n")).await?;
+
+            Ok(())
+        }
     }
 }
 

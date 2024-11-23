@@ -10,20 +10,20 @@ mod inner {
     use crate::plugins::tracker::DatabaseHelper;
     use crate::plugins::KVMap;
     use crate::socketlib::SocketConn;
-    use crate::telegram::{BindTelegramHelper, TelegramHelper};
+    use crate::telegram::BindTelegramHelper;
     #[cfg(feature = "tracker")]
     use crate::types::EventHelperTrait;
     #[cfg(not(feature = "tracker"))]
     use crate::types::PseudoEventHelper;
+    use crate::types::{ArgPass2Controller, SafeUserState};
     use anyhow::anyhow;
-    use futures_util::TryFutureExt;
     use log::{error, info, trace, warn};
     use std::sync::Arc;
     use std::time::Duration;
     use tap::TapFallible;
     #[cfg(feature = "tracker")]
     use tap::TapOptional;
-    use tokio::sync::{mpsc, Barrier, Notify};
+    use tokio::sync::{mpsc, Notify};
     use tuple_conv::RepeatedTuple;
 
     async fn try_init_connection(
@@ -84,6 +84,7 @@ mod inner {
         thread_id: String,
         telegram_sender: BindTelegramHelper,
         kv_map: Box<dyn KVMap>,
+        user_map: SafeUserState,
     ) -> ClientResult<()> {
         let (observer_connection, auto_channel_connection) = conn;
 
@@ -110,6 +111,7 @@ mod inner {
             config.clone(),
             thread_id.clone(),
             kv_map,
+            user_map,
         );
 
         let auto_channel_handler = tokio::spawn(async move {
@@ -137,8 +139,8 @@ mod inner {
                 info!("[{thread_id}] Recv SIGINT, send signal to thread.",);
                 private_message_sender
                     .send(PrivateMessageRequest::Terminate)
-                    .map_err(|_| error!("Send terminate error"))
                     .await
+                    .tap_err(|_| error!("Send terminate error"))
                     .ok();
                 #[cfg(feature = "tracker")]
                 tracker_controller
@@ -181,22 +183,22 @@ mod inner {
 
     pub(super) async fn bootstrap(
         config: Config,
-        notifier: Arc<Notify>,
-        barrier: Arc<Barrier>,
         thread_id: String,
-        telegram: TelegramHelper,
+        args: ArgPass2Controller,
         kv_map: Box<dyn KVMap>,
+        user_map: SafeUserState,
     ) -> ClientResult<()> {
         // Await all client ready
-        barrier.wait().await;
+        args.barrier.wait().await;
         let config_id = config.get_id();
         watchdog(
             try_init_connection(&config, config.server().server_id()).await?,
             config,
-            notifier,
+            args.notify,
             thread_id,
-            telegram.into_bind(config_id),
+            args.helper.into_bind(config_id),
             kv_map,
+            user_map,
         )
         .await
     }
@@ -274,6 +276,7 @@ mod controller {
     use crate::configure::Config;
     use crate::plugins::Backend;
     use crate::telegram::telegram_bootstrap;
+    use crate::types::ArgPass2Controller;
     use log::error;
     use std::fmt::Debug;
     use std::future::Future;
@@ -314,17 +317,19 @@ mod controller {
 
             let mut v = Vec::new();
 
-            let (handler, telegram_helper) = telegram_bootstrap(&configures, notify.clone())?;
+            let (handler, telegram_helper, user_state_map) =
+                telegram_bootstrap(&configures, notify.clone())?;
+
+            let controller_arg =
+                ArgPass2Controller::new(notify.clone(), barrier.clone(), telegram_helper.clone());
 
             for (thread_id, config) in configures {
                 let kv_map = connection.fork().await?;
-                let notify = notify.clone();
-                let barrier = barrier.clone();
-                let helper = telegram_helper.clone();
                 let exit_notify = exit_notify.clone();
+                let arg = controller_arg.clone();
+                let map = user_state_map.get(&config.get_id()).unwrap().clone();
                 v.push(Controller::new(Box::pin(async move {
-                    let result =
-                        bootstrap(config, notify, barrier, thread_id.clone(), helper, kv_map).await;
+                    let result = bootstrap(config, thread_id.clone(), arg, kv_map, map).await;
                     exit_notify.notify_waiters();
                     if let Err(e) = result {
                         error!("In {thread_id}: {e:?}");
