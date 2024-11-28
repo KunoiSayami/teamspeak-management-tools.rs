@@ -761,21 +761,22 @@ mod user_state {
             for (channel, clients) in &self.mapper {
                 write!(
                     f,
-                    "<b>{}</b>(<code>{}</code>): ",
+                    "<b>{}</b>(<code>{channel}</code>): ",
                     self.channel
                         .get(channel)
                         .unwrap_or(&DEFAULT_NO_NAME_PLACEHOLDER),
-                    channel
                 )?;
-                for client in clients {
+                for (index, client) in clients.iter().enumerate() {
                     write!(
                         f,
-                        "{}(<code>{}</code>)",
+                        "{}(<code>{client}</code>)",
                         self.client
                             .get(client)
                             .unwrap_or(&DEFAULT_NO_NAME_PLACEHOLDER),
-                        client
                     )?;
+                    if index != clients.len() - 1 {
+                        write!(f, ", ")?;
+                    }
                 }
                 writeln!(f)?;
             }
