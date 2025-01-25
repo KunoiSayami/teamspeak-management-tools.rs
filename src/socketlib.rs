@@ -107,7 +107,8 @@ impl SocketConn {
 
     async fn basic_operation(&mut self, payload: &str) -> QueryResult<()> {
         let data = self.write_and_read(payload).await?;
-        Self::decode_status(data).map(|_| ())
+        Self::decode_status(data)?;
+        Ok(())
     }
 
     async fn query_operation_non_error<T: FromQueryString + Sized>(

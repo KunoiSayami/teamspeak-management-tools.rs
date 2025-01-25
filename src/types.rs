@@ -706,7 +706,7 @@ mod user_state {
 
     use super::{Channel, Client, ToNameMap};
 
-    const DEFAULT_NO_NAME_PLACEHOLDER: LazyLock<String> = LazyLock::new(|| "N/A".to_string());
+    static DEFAULT_NO_NAME_PLACEHOLDER: LazyLock<String> = LazyLock::new(|| "N/A".to_string());
 
     #[derive(Clone, Debug, Default)]
     pub struct UserState {
