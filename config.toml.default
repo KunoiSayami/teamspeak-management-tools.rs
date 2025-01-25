@@ -16,9 +16,9 @@ privilege-group-id = 5
 
 # [[permissions]]
 # channel-id = 1
-# it means set i_channel_needed_permission_modify_power to 75 and i_channel_needed_delete_power to 60
+# it means set i_channel_needed_modify_power to 75 and i_channel_needed_delete_power to 60
 # See: https://github.com/KunoiSayami/teamspeak-autochannel.rs/wiki/Permission-List for more key information
-# map = [[86, 75], [133, 60]]
+# map = [[125, 75], [133, 60]]
 
 # [[permissions]]
 # channel-id = [2, 3]
