@@ -35,9 +35,9 @@ leveldb = "" # LevelDB database file name/path
 
 # [[permissions]]
 # channel-id = 1
-# it means set i_channel_needed_permission_modify_power to 75 and i_channel_needed_delete_power to 60
+# it means set i_channel_needed_modify_power to 75 and i_channel_needed_delete_power to 60
 # See: https://github.com/KunoiSayami/teamspeak-autochannel.rs/wiki/Permission-List for more key information
-# map = [[86, 75], [133, 60]]
+# map = [[125, 75], [133, 60]]
 
 [telegram]
 api-key = ""
@@ -77,7 +77,7 @@ password = "114514" # TeamSpeak ServerQuery Password
 |      whitelist       | integer, array | Optional | Porter whitelist, use database ID to identify user                                                                                                                                                                                                                                                                       |
 |     permissions      |     array      | Optional | The permission you want to set to the channel.<br/>If you are listening to multiple channels, you can set the permission for each channel by just add another `permissions` section.                                                                                                                                     |
 |      channel-id      |    integer     | Required | The ID of the channel, which you want to add the permission to.                                                                                                                                                                                                                                                          |
-|         map          |     array      | Optional | The permission you want to set to the channel. <br/>For example, `[[86, 75], [133, 60]]` means set i_channel_needed_permission_modify_power to 75 and i_channel_needed_delete_power to 60. <br>See [Permission List](https://github.com/KunoiSayami/teamspeak-autochannel.rs/wiki/Permission-List) for more information. |
+|         map          |     array      | Optional | The permission you want to set to the channel. <br/>For example, `[[125, 75], [133, 60]]` means set i_channel_needed_permission_modify_power to 75 and i_channel_needed_delete_power to 60. <br>See [Permission List](https://github.com/KunoiSayami/teamspeak-autochannel.rs/wiki/Permission-List) for more information. |
 |       telegram       |     table      | Required |                                                                                                                                                                                                                                                                                                                          |
 |       api-key        |     string     | Required | Telegram bot api key. If you don't use telegram, leave it blank.                                                                                                                                                                                                                                                         |
 |      api-server      |     string     | Optional | Telegram bot api server, leave blank to use default server.                                                                                                                                                                                                                                                              |
