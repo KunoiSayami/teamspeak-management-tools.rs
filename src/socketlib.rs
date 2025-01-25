@@ -274,10 +274,10 @@ impl SocketConn {
         permissions: &[(u64, i64)],
     ) -> QueryResult<()> {
         let payload = format!(
-            "channeladdperm cid={target_channel} {}",
+            "channeladdperm cid={target_channel} {}\n\r",
             permissions
                 .iter()
-                .map(|(k, v)| format!("permid={k} permvalue={v}\n\r",))
+                .map(|(k, v)| format!("permid={k} permvalue={v}",))
                 .collect::<Vec<String>>()
                 .join("|")
         );
