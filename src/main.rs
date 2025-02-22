@@ -9,18 +9,17 @@ mod types;
 
 use crate::hypervisor::{Controller, SYSTEMD_MODE};
 use clap::{arg, command};
-use log::{error, info, LevelFilter};
-use once_cell::sync::OnceCell;
+use log::{LevelFilter, error, info};
 use std::io::Write as _;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::Notify;
 
 const DEFAULT_OBSERVER_NICKNAME: &str = "observer";
 const DEFAULT_AUTO_CHANNEL_NICKNAME: &str = "auto channel";
 const DEFAULT_LEVEL_DB_LOCATION: &str = "./level.db";
 
-pub static OBSERVER_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
-pub static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceCell<String> = OnceCell::new();
+pub static OBSERVER_NICKNAME_OVERRIDE: OnceLock<String> = OnceLock::new();
+pub static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceLock<String> = OnceLock::new();
 
 async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()> {
     let notify = Arc::new(Notify::new());
@@ -112,7 +111,7 @@ fn main() -> anyhow::Result<()> {
         .get_matches();
 
     let systemd_mode = matches.get_flag("systemd");
-    build_logger(*matches.get_one::<u8>("debug").unwrap_or(&0), systemd_mode);
+    build_logger(matches.get_count("debug"), systemd_mode);
 
     if let Some(nickname) = matches.get_one::<String>("observer-name") {
         OBSERVER_NICKNAME_OVERRIDE

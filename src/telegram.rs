@@ -1,9 +1,9 @@
 mod types {
     use crate::types::{NotifyClientEnterView, NotifyClientLeftView};
+    use teloxide::Bot;
     use teloxide::adaptors::DefaultParseMode;
     use teloxide::prelude::{ChatId, Request, Requester, RequesterExt};
     use teloxide::types::ParseMode;
-    use teloxide::Bot;
     use tokio::sync::mpsc;
     #[derive(Clone, Debug)]
     #[non_exhaustive]
@@ -56,19 +56,24 @@ mod types {
                         view.client_id()
                     ),
                     5 | 6 => {
-                        write!(f,
-                               "[{time}] <b>{nickname}</b>({client_id}) was #{operation} by <b>{invoker}</b>(<code>{invoker_uid}</code>){reason}",
-                               time = time,
-                               nickname = nickname,
-                               operation = if view.reason_id() == 5 { "kicked" } else { "banned" },
-                               client_id = view.client_id(),
-                               invoker = view.invoker_name(),
-                               invoker_uid = view.invoker_uid(),
-                               reason = if view.reason().is_empty() {
-                                   " with no reason".into()
-                               } else {
-                                   format!(": {}", view.reason())
-                               }
+                        write!(
+                            f,
+                            "[{time}] <b>{nickname}</b>({client_id}) was #{operation} by <b>{invoker}</b>(<code>{invoker_uid}</code>){reason}",
+                            time = time,
+                            nickname = nickname,
+                            operation = if view.reason_id() == 5 {
+                                "kicked"
+                            } else {
+                                "banned"
+                            },
+                            client_id = view.client_id(),
+                            invoker = view.invoker_name(),
+                            invoker_uid = view.invoker_uid(),
+                            reason = if view.reason().is_empty() {
+                                " with no reason".into()
+                            } else {
+                                format!(": {}", view.reason())
+                            }
                         )
                     }
                     _ => unreachable!("Got unexpected left message: {view:?}"),
@@ -245,7 +250,7 @@ mod thread {
     use std::collections::HashMap;
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::{broadcast, mpsc, Notify};
+    use tokio::sync::{Notify, broadcast, mpsc};
 
     const QUERY_BOT_ERROR: &str = "Query bot error";
 
@@ -455,7 +460,6 @@ mod thread {
         use std::{collections::HashMap, sync::Arc};
 
         use log::warn;
-        use tap::TapFallible as _;
         use teloxide::{
             dispatching::{HandlerExt as _, UpdateFilterExt as _},
             dptree,
@@ -564,7 +568,7 @@ mod thread {
                                         handle_list(bot, msg, chat_map, channel_map).await
                                     }
                                 }
-                                .tap_err(|e| log::error!("Handle command error: {e:?}"))
+                                .inspect_err(|e| log::error!("Handle command error: {e:?}"))
                             },
                         ),
                 );

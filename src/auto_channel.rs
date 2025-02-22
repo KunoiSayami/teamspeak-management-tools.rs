@@ -1,5 +1,5 @@
-use crate::configure::config::MutePorter;
 use crate::configure::Config;
+use crate::configure::config::MutePorter;
 use crate::observer::PrivateMessageRequest;
 use crate::plugins::KVMap;
 use crate::socketlib::SocketConn;
@@ -88,14 +88,14 @@ pub async fn mute_porter_function(
             if let Some(true) = conn
                 .query_client_info(client.client_id())
                 .await
-                .tap_err(|e| error!("[{thread_id}] Unable query client information: {e:?}",))
+                .inspect_err(|e| error!("[{thread_id}] Unable query client information: {e:?}",))
                 .ok()
                 .flatten()
                 .map(|r| r.is_client_muted())
             {
                 conn.move_client(client.client_id(), mute_porter.target_channel())
                     .await
-                    .tap_err(|e| {
+                    .inspect_err(|e| {
                         error!(
                             "[{thread_id}] Unable move client {} to channel {}: {e:?}",
                             client.client_id(),
@@ -184,7 +184,7 @@ pub async fn auto_channel_staff(
                                 .delete(key)
                                 .await
                                 .tap_ok(|_| trace!("[{thread_id}] Deleted"))
-                                .tap_err(|e| {
+                                .inspect_err(|e| {
                                     error!("[{thread_id}] Got error while delete from redis: {e:?}")
                                 })
                                 .ok();
@@ -195,7 +195,9 @@ pub async fn auto_channel_staff(
                                 "Received.".into(),
                             ))
                             .await
-                            .tap_err(|_| error!("[{thread_id}] Got error in request send message"))
+                            .inspect_err(|_| {
+                                error!("[{thread_id}] Got error in request send message")
+                            })
                             .ok();
                     }
                     AutoChannelEvent::ShouldRefresh => {
@@ -209,7 +211,9 @@ pub async fn auto_channel_staff(
                 Err(_) => {
                     conn.who_am_i()
                         .await
-                        .tap_err(|e| error!("[{thread_id}] Got error while doing keep alive {e:?}"))
+                        .inspect_err(|e| {
+                            error!("[{thread_id}] Got error while doing keep alive {e:?}")
+                        })
                         .ok();
                     if config.mute_porter().enable() {
                         mute_porter_function(&mut conn, config.mute_porter(), &thread_id).await?;
@@ -225,7 +229,7 @@ pub async fn auto_channel_staff(
         let Ok(clients) = conn
             .query_clients()
             .await
-            .tap_err(|e| error!("[{thread_id}] Got error while query clients: {e:?}"))
+            .inspect_err(|e| error!("[{thread_id}] Got error while query clients: {e:?}"))
         else {
             continue;
         };
@@ -250,7 +254,7 @@ pub async fn auto_channel_staff(
                 .await?
                 .map(|v| v.parse())
                 .transpose()
-                .tap_err(|e| error!("[{thread_id}] Unable to parse result: {e:?}"))
+                .inspect_err(|e| error!("[{thread_id}] Unable to parse result: {e:?}"))
                 .ok()
                 .flatten();
             let create_new = ret.is_none();
@@ -280,14 +284,14 @@ pub async fn auto_channel_staff(
                     privilege_group,
                 )
                 .await
-                .tap_err(|e| {
+                .inspect_err(|e| {
                     error!("[{thread_id}] Got error while set client channel group: {e:?}",)
                 })
                 .ok();
 
                 conn.add_channel_permission(channel_id, &[(133, 75)])
                     .await
-                    .tap_err(|e| {
+                    .inspect_err(|e| {
                         error!(
                             "[{thread_id}] Got error while set default channel permissions: {e:?}",
                         )
@@ -297,7 +301,7 @@ pub async fn auto_channel_staff(
                 if let Some(permissions) = channel_permissions.get(&client.channel_id()) {
                     conn.add_channel_permission(channel_id, permissions)
                         .await
-                        .tap_err(|e| {
+                        .inspect_err(|e| {
                             error!("[{thread_id}] Got error while set channel permissions: {e:?}",)
                         })
                         .ok();
@@ -324,7 +328,7 @@ pub async fn auto_channel_staff(
                     moved_message.clone().into(),
                 ))
                 .await
-                .tap_err(|_| warn!("[{thread_id}] Send message request fail"))
+                .inspect_err(|_| warn!("[{thread_id}] Send message request fail"))
                 .ok();
 
             if create_new {

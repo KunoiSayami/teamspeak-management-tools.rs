@@ -1,14 +1,14 @@
 mod inner {
     use super::{
-        types::SubThreadExitReason, ClientResult, SYSTEMD_MODE, SYSTEMD_MODE_RETRIES_TIMES,
+        ClientResult, SYSTEMD_MODE, SYSTEMD_MODE_RETRIES_TIMES, types::SubThreadExitReason,
     };
-    use crate::auto_channel::{auto_channel_staff, AutoChannelInstance};
-    use crate::configure::config::RawQuery;
+    use crate::auto_channel::{AutoChannelInstance, auto_channel_staff};
     use crate::configure::Config;
-    use crate::observer::{observer_thread, PrivateMessageRequest};
+    use crate::configure::config::RawQuery;
+    use crate::observer::{PrivateMessageRequest, observer_thread};
+    use crate::plugins::KVMap;
     #[cfg(feature = "tracker")]
     use crate::plugins::tracker::DatabaseHelper;
-    use crate::plugins::KVMap;
     use crate::socketlib::SocketConn;
     use crate::telegram::BindTelegramHelper;
     #[cfg(feature = "tracker")]
@@ -20,10 +20,9 @@ mod inner {
     use log::{error, info, trace, warn};
     use std::sync::Arc;
     use std::time::Duration;
-    use tap::TapFallible;
     #[cfg(feature = "tracker")]
     use tap::TapOptional;
-    use tokio::sync::{mpsc, Notify};
+    use tokio::sync::{Notify, mpsc};
     use tuple_conv::RepeatedTuple;
 
     async fn try_init_connection(
@@ -46,7 +45,7 @@ mod inner {
                             .map_err(|e| {
                                 anyhow!("Got error while create second connection: {e:?}")
                             })?,
-                    ))
+                    ));
                 }
                 Err(e) => {
                     if retries == SYSTEMD_MODE_RETRIES_TIMES && step < retries - 1 {
@@ -117,7 +116,7 @@ mod inner {
         let auto_channel_handler = tokio::spawn(async move {
             auto_channel_future
                 .await
-                .tap_err(|e| log::error!("Early error detected: {e:?}"))
+                .inspect_err(|e| log::error!("Early error detected: {e:?}"))
         });
 
         let auto_channel_instance =
@@ -140,7 +139,7 @@ mod inner {
                 private_message_sender
                     .send(PrivateMessageRequest::Terminate)
                     .await
-                    .tap_err(|_| error!("Send terminate error"))
+                    .inspect_err(|_| error!("Send terminate error"))
                     .ok();
                 #[cfg(feature = "tracker")]
                 tracker_controller
@@ -160,7 +159,7 @@ mod inner {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                     private_message_sender.send(PrivateMessageRequest::KeepAlive)
                         .await
-                        .tap_err(|_| error!("[{thread_id}] Send keep alive command error"))
+                        .inspect_err(|_| error!("[{thread_id}] Send keep alive command error"))
                         .ok();
                 }
             } => {
@@ -344,9 +343,10 @@ mod controller {
     }
 }
 
-pub static SYSTEMD_MODE: OnceCell<bool> = OnceCell::new();
+pub static SYSTEMD_MODE: OnceLock<bool> = OnceLock::new();
 const SYSTEMD_MODE_RETRIES_TIMES: u32 = 3;
 
+use std::sync::OnceLock;
+
 pub use controller::Controller;
-use once_cell::sync::OnceCell;
 use types::ClientResult;

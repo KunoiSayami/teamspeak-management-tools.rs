@@ -8,7 +8,7 @@ use log::{error, info, trace, warn};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::time::Duration;
-use tap::{TapFallible, TapOptional};
+use tap::TapOptional;
 use tokio::sync::mpsc;
 
 pub enum PrivateMessageRequest {
@@ -437,7 +437,7 @@ pub async fn observer_thread(
     monitor_channel
         .send_terminate()
         .await
-        .tap_err(|e| error!("[{thread_id}] {e:?}"))
+        .inspect_err(|e| error!("[{thread_id}] {e:?}"))
         .ok();
 
     Ok(())

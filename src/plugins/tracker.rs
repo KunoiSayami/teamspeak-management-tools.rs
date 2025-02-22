@@ -132,13 +132,12 @@ pub mod types {
 }
 
 pub mod handler {
-    use super::types::EventHelper;
     use super::Event;
-    use super::{check_database, create_new_database, insert_database_version, DatabaseResult};
+    use super::types::EventHelper;
+    use super::{DatabaseResult, check_database, create_new_database, insert_database_version};
     use log::error;
     use sqlx::sqlite::SqliteConnectOptions;
     use sqlx::{ConnectOptions, SqliteConnection};
-    use tap::TapFallible;
     use tokio::sync::mpsc;
     use tokio::task::JoinHandle;
 
@@ -183,7 +182,7 @@ pub mod handler {
                     Event::Insert(client_id, user_id, nickname, channel) => {
                         super::current::insert(&mut conn, client_id, user_id, nickname, channel)
                             .await
-                            .tap_err(|e| error!("Unable insert to database: {e:?}"))
+                            .inspect_err(|e| error!("Unable insert to database: {e:?}"))
                             .ok();
                     }
                     Event::Terminate => {
@@ -202,7 +201,7 @@ pub mod handler {
             filename: Option<String>,
             error_handler: fn(&sqlx::Error) -> (),
         ) -> (Self, EventHelper) {
-            match Self::new(filename).await.tap_err(error_handler) {
+            match Self::new(filename).await.inspect_err(error_handler) {
                 Ok(ret) => ret,
                 Err(_) => Self::create_empty().await.unwrap(),
             }

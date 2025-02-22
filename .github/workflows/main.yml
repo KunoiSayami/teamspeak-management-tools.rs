@@ -7,7 +7,6 @@ on:
     branches:
       - master
 
-
 env:
   CARGO_TERM_COLOR: always
 
@@ -17,11 +16,8 @@ jobs:
       matrix:
         job:
           - os: macos-latest
-            binary_name: teamspeak-management-tools_darwin_amd64
           - os: ubuntu-latest
-            binary_name: teamspeak-management-tools_linux_amd64
           - os: windows-latest
-            binary_name: teamspeak-management-tools_windows_amd64.exe
 
     name: Build
     runs-on: ${{ matrix.job.os }}
@@ -31,11 +27,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Environment
+      #- name: Environment
+      #  run: |
+      #    git submodule update --init --recursive
+      - name: Determine Binary Name
+        id: determine-os
+        shell: bash
         run: |
-          git submodule update --init --recursive
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            BINARY=teamspeak-management-tools_linux_amd64
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            BINARY=teamspeak-management-tools_windows_amd64.exe
+          else # macOS
+            BINARY=teamspeak-management-tools_darwin_arm64
+          fi
+          echo "binary_name=$BINARY" >> $GITHUB_OUTPUT
 
-      - name: Update rust
+      - name: Cache Cargo packages
+        id: cache-cargo
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-cargo
+          path: |
+            ~/.cargo
+            ~/.rustup
+            $PWD/target
+      - if: ${{ steps.cache-cargo.outputs.cache-hit != 'true' }}
+        name: Update rust
         run: rustup update
 
       - name: Build binary
@@ -46,7 +64,7 @@ jobs:
         id: rename
         shell: bash
         env:
-          BINARY_NAME: ${{ matrix.job.binary_name }}
+          BINARY_NAME: ${{ steps.determine-os.outputs.binary_name }}
         run: |
           if [ "$RUNNER_OS" == "Windows" ]; then
             mv target/release/teamspeak-management-tools.exe target/release/$BINARY_NAME
@@ -56,8 +74,8 @@ jobs:
           echo "bin=target/release/$BINARY_NAME" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4.3.3
         with:
-          name: ${{ matrix.job.binary_name }}
-          path: target/release/${{ matrix.job.binary_name }}
+          name: ${{ steps.determine-os.outputs.binary_name }}
+          path: target/release/${{ steps.determine-os.outputs.binary_name }}
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -75,12 +93,22 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - name: Environment
-        run: |
-          git submodule update --init --recursive
-          sudo apt install libssl-dev
-      - name: Update rust
-        run: rustup target install aarch64-unknown-linux-musl
+      #- name: Environment
+      #  run: |
+      #    git submodule update --init --recursive
+      #    sudo apt install libssl-dev
+      - name: Cache Cargo packages
+        id: cache-cargo
+        uses: actions/cache@v4
+        with:
+          key: ${{ runner.os }}-cargo-cross
+          path: |
+            ~/.cargo
+            ~/.rustup
+            $PWD/target
+      - if: ${{ steps.cache-cargo.outputs.cache-hit != 'true' }}
+        name: Update rust
+        run: rustup update && rustup target install aarch64-unknown-linux-musl
       - name: Install cross
         run: cargo install cross
       - name: Build binary

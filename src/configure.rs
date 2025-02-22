@@ -4,7 +4,6 @@ pub mod config {
     use serde::Deserialize;
     use std::collections::HashMap;
     use std::fmt::Debug;
-    use tap::TapFallible;
     use tokio::io::AsyncReadExt;
 
     use crate::plugins::{Backend, ForkConnection};
@@ -314,9 +313,9 @@ pub mod config {
             let mut ret = vec![(id, p_config.clone())];
 
             for path in p_config.additional() {
-                let config = Self::load(path)
-                    .await
-                    .tap_err(|e| log::error!("Load additional configure {path:?} error: {e:?}"))?;
+                let config = Self::load(path).await.inspect_err(|e| {
+                    log::error!("Load additional configure {path:?} error: {e:?}")
+                })?;
                 let id = Self::config_xxhash(config.get_id().as_bytes());
                 info!("Load {path:?} as {id:?}");
                 ret.push((id, config));

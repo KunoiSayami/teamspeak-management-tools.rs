@@ -82,11 +82,10 @@ impl SocketConn {
             .write(payload.as_bytes())
             .await
             .map(|size| {
-                if size != payload.as_bytes().len() {
+                if size != payload.len() {
                     error!(
                         "Error payload size mismatch! expect {} but {size} found. payload: {payload:?}",
-                        payload.as_bytes().len(),
-
+                        payload.len(),
                     )
                 }
             })
@@ -94,7 +93,7 @@ impl SocketConn {
         /*self.conn
         .flush()
         .await
-        .tap_err(|e| anyhow!("Got error while flush data: {e:?}"))?;*/
+        .inspect_err(|e| anyhow!("Got error while flush data: {e:?}"))?;*/
         Ok(())
     }
 
