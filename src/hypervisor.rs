@@ -87,8 +87,8 @@ mod inner {
     ) -> ClientResult<()> {
         let (observer_connection, auto_channel_connection) = conn;
 
-        let (private_message_sender, private_message_receiver) = mpsc::channel(4096);
-        let (trigger_sender, trigger_receiver) = mpsc::channel(1024);
+        let (private_message_sender, private_message_receiver) = mpsc::channel(128);
+        let (trigger_sender, trigger_receiver) = mpsc::channel(128);
         //let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
 
         //let thread_id = Rc::new(thread_id);

@@ -151,8 +151,8 @@ mod client {
 
     #[cfg(test)]
     mod test {
-        use crate::types::client::Client;
         use crate::types::FromQueryString;
+        use crate::types::client::Client;
 
         const TEST_STRING: &str = "clid=8 cid=1 client_database_id=1 client_nickname=serveradmin client_type=1 client_unique_identifier=serveradmin";
 

@@ -69,7 +69,7 @@ impl SocketConn {
             };
 
             ret.push_str(&String::from_utf8_lossy(&buffer[..size]));
-            if size < BUFFER_SIZE || (ret.contains("error id=") && ret.ends_with("\n\r")) {
+            if ret.contains("error id=") && ret.ends_with("\n\r") {
                 break;
             }
         }

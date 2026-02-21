@@ -139,7 +139,7 @@ mod types {
         }*/
 
         pub(super) fn new() -> (Self, mpsc::Receiver<CombineData>) {
-            let (sender, r) = mpsc::channel(4096);
+            let (sender, r) = mpsc::channel(64);
             (Self { sender }, r)
         }
 
