@@ -84,10 +84,9 @@ impl LevelDB {
                 }
                 DatabaseEvent::Get(k, sender) => {
                     sender
-                        .send(
-                            db.get(k.as_bytes())
-                                .map_or(Ok(None), |bytes| String::from_utf8(bytes).map(Some)),
-                        )
+                        .send(db.get(k.as_bytes()).map_or(Ok(None), |bytes| {
+                            String::from_utf8(bytes.to_vec()).map(Some)
+                        }))
                         .ok();
                 }
                 DatabaseEvent::Delete(k, sender) => {

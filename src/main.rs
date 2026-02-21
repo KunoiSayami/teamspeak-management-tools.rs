@@ -104,8 +104,8 @@ fn main() -> anyhow::Result<()> {
             arg!([CONFIG_FILE] "Override default configure file location")
                 .default_value("config.toml"),
             arg!(--systemd "Start in systemd mode, which enable wait if connect failed"),
-            arg!(--"observer-name" [OBSERVER_NAME] "Override observer nickname"),
-            arg!(--"autochannel-name" [AUTO_CHANNEL_NAME] "Override auto channel nickname"),
+            arg!(--"observer-name" <OBSERVER_NAME> "Override observer nickname"),
+            arg!(--"autochannel-name" <AUTO_CHANNEL_NAME> "Override auto channel nickname"),
             arg!(-d --debug ... "Enable debug mode (can specify more times)"),
         ])
         .get_matches();
