@@ -43,9 +43,6 @@ impl KVMap for RedisAgent {
     }
 
     async fn get(&mut self, key: String) -> anyhow::Result<Option<String>> {
-        Ok(__self
-            .conn
-            .get::<_, Option<String>>(key.to_string())
-            .await?)
+        Ok(self.conn.get::<_, Option<String>>(key.to_string()).await?)
     }
 }
