@@ -6,7 +6,7 @@ use crate::types::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
 use log::{error, warn};
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, Interest};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 const BUFFER_SIZE: usize = 512;
@@ -32,8 +32,40 @@ impl SocketConn {
         Err(QueryError::static_empty_response())
     }
 
-    pub async fn wait_readable(&mut self) -> anyhow::Result<bool> {
-        Ok(self.conn.ready(Interest::READABLE).await?.is_readable())
+    async fn read_inner(
+        &mut self,
+        timeout: Option<Duration>,
+        is_complete: impl Fn(&str, usize) -> bool,
+    ) -> anyhow::Result<Option<String>> {
+        let mut buffer = [0u8; BUFFER_SIZE];
+        let mut ret = String::new();
+        loop {
+            let size = match timeout {
+                Some(dur) => match tokio::time::timeout(dur, self.conn.read(&mut buffer)).await {
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => return Err(anyhow!("Got error while read data: {e:?}")),
+                    Err(_) => return Ok(None),
+                },
+                None => self
+                    .conn
+                    .read(&mut buffer)
+                    .await
+                    .map_err(|e| anyhow!("Got error while read data: {e:?}"))?,
+            };
+            if size == 0 {
+                return Ok(None);
+            }
+            ret.push_str(&String::from_utf8_lossy(&buffer[..size]));
+            if is_complete(&ret, size) {
+                break;
+            }
+        }
+        Ok(Some(ret))
+    }
+
+    pub async fn read_event(&mut self) -> anyhow::Result<Option<String>> {
+        self.read_inner(None, |s, size| size < BUFFER_SIZE || s.ends_with("\n\r"))
+            .await
     }
 
     fn decode_status_with_result<T: FromQueryString + Sized>(
@@ -54,26 +86,10 @@ impl SocketConn {
     }
 
     pub(crate) async fn read_data(&mut self) -> anyhow::Result<Option<String>> {
-        let mut buffer = [0u8; BUFFER_SIZE];
-        let mut ret = String::new();
-        loop {
-            let size = if let Ok(data) =
-                tokio::time::timeout(Duration::from_secs(2), self.conn.read(&mut buffer)).await
-            {
-                match data {
-                    Ok(size) => size,
-                    Err(e) => return Err(anyhow!("Got error while read data: {e:?}")),
-                }
-            } else {
-                return Ok(None);
-            };
-
-            ret.push_str(&String::from_utf8_lossy(&buffer[..size]));
-            if ret.contains("error id=") && ret.ends_with("\n\r") {
-                break;
-            }
-        }
-        Ok(Some(ret))
+        self.read_inner(Some(Duration::from_secs(2)), |s, _| {
+            s.contains("error id=") && s.ends_with("\n\r")
+        })
+        .await
     }
 
     pub(crate) async fn write_data(&mut self, payload: &str) -> anyhow::Result<()> {

@@ -367,7 +367,7 @@ pub async fn observer_thread(
     }
 
     loop {
-        tokio::select! {
+        let data = tokio::select! {
             message = tokio::time::timeout(Duration::from_millis(interval), recv.recv()) => {
                 let message = match message {
                     Ok(Some(ret)) => ret,
@@ -375,7 +375,6 @@ pub async fn observer_thread(
                 };
                 match message {
                     PrivateMessageRequest::Message(client_id, message) => {
-
                         conn.send_text_message_unchecked(client_id, &message)
                         .await
                         .map(|_| trace!("[{thread_id}] Send message to {client_id}"))
@@ -389,6 +388,7 @@ pub async fn observer_thread(
                             .map_err(|e| {
                                 anyhow!("Got error while write data in keep alive function: {e:?}")
                             })?;
+                        continue
                     }
                     PrivateMessageRequest::Terminate => {
                         info!("[{thread_id}] Exit from staff thread!");
@@ -397,22 +397,14 @@ pub async fn observer_thread(
                     }
                 }
             }
-            ret = conn.wait_readable() => {
-                if !ret? {
-                    continue
+            data = conn.read_event() => {
+                let data = data.map_err(|e| anyhow!("Got error while read data: {e:?}"))?;
+                match data {
+                    Some(s) if !s.is_empty() => s,
+                    _ => continue,
                 }
             }
-        }
-
-        let data = conn
-            .read_data()
-            .await
-            .map_err(|e| anyhow!("Got error while read data: {e:?}"))?;
-
-        if !matches!(&data, Some(x) if !x.is_empty()) {
-            continue;
-        }
-        let data = data.unwrap();
+        };
         let current_time = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let arguments = Arguments::new(
             &ignore_list,
