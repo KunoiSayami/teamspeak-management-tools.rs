@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use tokio::sync::mpsc::Receiver;
 
 //pub type OnceSender<T> = tokio::sync::oneshot::Sender<T>;
@@ -80,7 +81,9 @@ impl LevelDB {
                 DatabaseEvent::Set(k, v, sender) => {
                     let ret = db.put(k.as_bytes(), v.as_bytes());
                     sender.send(ret).ok();
-                    db.flush()?;
+                    if let Err(e) = db.flush() {
+                        log::error!("LevelDB flush error after set: {e:?}");
+                    }
                 }
                 DatabaseEvent::Get(k, sender) => {
                     sender
@@ -91,7 +94,9 @@ impl LevelDB {
                 }
                 DatabaseEvent::Delete(k, sender) => {
                     sender.send(db.delete(k.as_bytes())).ok();
-                    db.flush()?;
+                    if let Err(e) = db.flush() {
+                        log::error!("LevelDB flush error after delete: {e:?}");
+                    }
                 }
                 DatabaseEvent::Exit => break,
             }
@@ -111,23 +116,31 @@ impl LevelDB {
 #[async_trait::async_trait]
 impl KVMap for ConnAgent {
     async fn set(&mut self, key: String, value: String) -> anyhow::Result<Option<()>> {
-        self.0
-            .set(key.to_string(), value.to_string())
+        let ret = self
+            .0
+            .set(key, value)
             .await
-            .map_or(Ok(()), |v| v.map_err(anyhow::Error::from))?;
+            .ok_or_else(|| anyhow!("LevelDB worker thread is unavailable"))?;
+        ret.map_err(anyhow::Error::from)?;
         Ok(Some(()))
     }
 
     async fn delete(&mut self, key: String) -> anyhow::Result<()> {
-        self.0.delete(key.to_string()).await;
-        Ok(())
+        let ret = self
+            .0
+            .delete(key)
+            .await
+            .ok_or_else(|| anyhow!("LevelDB worker thread is unavailable"))?;
+        ret.map_err(anyhow::Error::from)
     }
 
     async fn get(&mut self, key: String) -> anyhow::Result<Option<String>> {
-        self.0
-            .get(key.to_string())
+        let ret = self
+            .0
+            .get(key)
             .await
-            .map_or(Ok(None), |v| v.map_err(anyhow::Error::from))
+            .ok_or_else(|| anyhow!("LevelDB worker thread is unavailable"))?;
+        ret.map_err(anyhow::Error::from)
     }
 }
 
