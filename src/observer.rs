@@ -285,11 +285,11 @@ async fn staff(
         return Processor::user_left(line, argument, client_map).await;
     }
 
-    if line.contains("notifyclientmoved") && argument.monitor_channel().valid() {
+    if line.starts_with("notifyclientmoved") && argument.monitor_channel().valid() {
         return Processor::user_move(line, argument).await;
     }
 
-    if line.contains("notifytextmessage") && argument.monitor_channel().valid() {
+    if line.starts_with("notifytextmessage") && argument.monitor_channel().valid() {
         return Processor::user_text(line, argument).await;
     }
     if line.starts_with("banid") {
@@ -371,7 +371,9 @@ pub async fn observer_thread(
             message = tokio::time::timeout(Duration::from_millis(interval), recv.recv()) => {
                 let message = match message {
                     Ok(Some(ret)) => ret,
-                    _ => continue,
+                    // All senders has been dropped, no more message will arrive
+                    Ok(None) => break,
+                    Err(_) => continue,
                 };
                 match message {
                     PrivateMessageRequest::Message(client_id, message) => {
