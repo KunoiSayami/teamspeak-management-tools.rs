@@ -272,7 +272,12 @@ pub async fn auto_channel_staff(
                             error!("[{thread_id}] Got error while create {name:?} channel: {e:?}",);
                             continue 'outer;
                         }
-                        _ => unreachable!(),
+                        Ok(None) => {
+                            error!(
+                                "[{thread_id}] Got empty response while create {name:?} channel",
+                            );
+                            continue 'outer;
+                        }
                     };
 
                     break create_channel;
