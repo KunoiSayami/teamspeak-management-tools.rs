@@ -156,9 +156,20 @@ impl SocketConn {
     }
 
     fn escape(s: &str) -> String {
+        // Escape patterns defined by the TeamSpeak 3 ServerQuery manual.
+        // The backslash must be escaped first so the added escapes are not
+        // escaped themselves.
         s.replace('\\', "\\\\")
-            .replace(' ', "\\s")
+            .replace('\u{7}', "\\a")
+            .replace('\u{8}', "\\b")
+            .replace('\u{b}', "\\v")
+            .replace('\u{c}', "\\f")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\t', "\\t")
             .replace('/', "\\/")
+            .replace('|', "\\p")
+            .replace(' ', "\\s")
     }
 
     pub async fn connect(server: &str, port: u16) -> anyhow::Result<Self> {
@@ -183,7 +194,11 @@ impl SocketConn {
     }
 
     pub async fn login(&mut self, user: &str, password: &str) -> QueryResult<()> {
-        let payload = format!("login {user} {password}\n\r");
+        let payload = format!(
+            "login {} {}\n\r",
+            Self::escape(user),
+            Self::escape(password)
+        );
         self.basic_operation(payload.as_str()).await
     }
 
@@ -353,5 +368,25 @@ impl SocketConn {
     pub async fn query_client_info(&mut self, client_id: i64) -> QueryResult<Option<ClientInfo>> {
         self.query_one_operation(&format!("clientinfo clid={client_id}\n\r"))
             .await
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::SocketConn;
+
+    #[test]
+    fn test_escape() {
+        assert_eq!(SocketConn::escape("a b"), "a\\sb");
+        assert_eq!(SocketConn::escape("a|b"), "a\\pb");
+        assert_eq!(SocketConn::escape("a/b"), "a\\/b");
+        assert_eq!(SocketConn::escape("a\\b"), "a\\\\b");
+        assert_eq!(SocketConn::escape("a\tb"), "a\\tb");
+        assert_eq!(SocketConn::escape("a\nb"), "a\\nb");
+        assert_eq!(SocketConn::escape("a\rb"), "a\\rb");
+        assert_eq!(
+            SocketConn::escape("Nick | Name"),
+            "Nick\\s\\p\\sName"
+        );
     }
 }
