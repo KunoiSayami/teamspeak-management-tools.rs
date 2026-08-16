@@ -124,6 +124,7 @@ mod client {
         client_database_id: i64,
         client_type: i64,
         client_nickname: String,
+        client_unique_identifier: String,
     }
 
     impl Client {
@@ -141,6 +142,9 @@ mod client {
         }
         pub fn client_nickname(&self) -> &str {
             &self.client_nickname
+        }
+        pub fn client_unique_identifier(&self) -> &str {
+            &self.client_unique_identifier
         }
         pub fn client_is_user(&self) -> bool {
             self.client_type == 0
@@ -215,12 +219,6 @@ pub mod notifies {
         reason_id: i64,
         #[serde(rename = "invokerid", default)]
         invoker_id: i64,*/
-        #[cfg(feature = "tracker")]
-        #[serde(rename = "invokeruid", default)]
-        invoker_uid: String,
-        #[cfg(feature = "tracker")]
-        #[serde(rename = "invokername", default)]
-        invoker_name: String,
         #[serde(rename = "clid", default)]
         client_id: i64,
     }
@@ -235,14 +233,6 @@ pub mod notifies {
         pub fn invoker_id(&self) -> i64 {
             self.invoker_id
         }*/
-        #[cfg(feature = "tracker")]
-        pub fn invoker_uid(&self) -> &str {
-            &self.invoker_uid
-        }
-        #[cfg(feature = "tracker")]
-        pub fn invoker_name(&self) -> &str {
-            &self.invoker_name
-        }
         pub fn client_id(&self) -> i64 {
             self.client_id
         }
