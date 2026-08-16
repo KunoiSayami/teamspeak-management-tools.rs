@@ -211,12 +211,7 @@ mod processor {
             #[cfg(feature = "tracker")]
             argument
                 .tracker_controller()
-                .insert(
-                    view.client_id() as i32,
-                    Some(view.invoker_uid().to_string()),
-                    Some(view.invoker_name().to_string()),
-                    Some(view.channel_id() as i32),
-                )
+                .insert(view.client_id() as i32, None, None, Some(view.channel_id() as i32))
                 .await
                 .tap_none(|| warn!("[{}] Unable send message to tracker", argument.thread_id()));
             Ok(())
@@ -343,7 +338,7 @@ pub async fn observer_thread(
         tracker_controller
             .insert(
                 client.client_id() as i32,
-                Some(client.client_database_id().to_string()),
+                Some(client.client_unique_identifier().to_string()),
                 Some(client.client_nickname().to_string()),
                 Some(client.channel_id() as i32),
             )
