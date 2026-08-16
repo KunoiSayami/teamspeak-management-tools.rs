@@ -286,6 +286,7 @@ mod thread {
             // Get bot self ID
             let Some((bot_id, _)) = config.telegram().api_key().split_once(':') else {
                 warn!("Configure: [{config_id}] token in invalid format, ignore.",);
+                user_state_map.insert(config_id, SafeUserState::create_none());
                 continue;
             };
 
