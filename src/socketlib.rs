@@ -13,6 +13,11 @@ const BUFFER_SIZE: usize = 512;
 
 pub struct SocketConn {
     conn: TcpStream,
+    /// Data already read from the socket but not yet returned to the caller.
+    ///
+    /// Keeping it here makes `read_inner` cancellation-safe: dropping the
+    /// future mid-read no longer discards the bytes received so far.
+    pending: String,
 }
 
 impl SocketConn {
@@ -38,7 +43,6 @@ impl SocketConn {
         is_complete: impl Fn(&str, usize) -> bool,
     ) -> anyhow::Result<Option<String>> {
         let mut buffer = [0u8; BUFFER_SIZE];
-        let mut ret = String::new();
         loop {
             let size = match timeout {
                 Some(dur) => match tokio::time::timeout(dur, self.conn.read(&mut buffer)).await {
@@ -55,12 +59,13 @@ impl SocketConn {
             if size == 0 {
                 return Ok(None);
             }
-            ret.push_str(&String::from_utf8_lossy(&buffer[..size]));
-            if is_complete(&ret, size) {
+            self.pending
+                .push_str(&String::from_utf8_lossy(&buffer[..size]));
+            if is_complete(&self.pending, size) {
                 break;
             }
         }
-        Ok(Some(ret))
+        Ok(Some(std::mem::take(&mut self.pending)))
     }
 
     pub async fn read_event(&mut self) -> anyhow::Result<Option<String>> {
@@ -168,7 +173,10 @@ impl SocketConn {
 
         //let bufreader = BufReader::new(conn);
         //conn.set_nonblocking(true).unwrap();
-        let mut self_ = Self { conn };
+        let mut self_ = Self {
+            conn,
+            pending: String::new(),
+        };
 
         let content = self_
             .read_data()
@@ -178,6 +186,10 @@ impl SocketConn {
         if content.is_none() {
             warn!("Read none data.");
         }
+
+        // The greeting banner is not needed, drop any partially read leftover
+        // so it cannot corrupt the first command response.
+        self_.pending.clear();
 
         Ok(self_)
     }
