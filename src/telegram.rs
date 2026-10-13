@@ -76,7 +76,11 @@ mod types {
                             }
                         )
                     }
-                    _ => unreachable!("Got unexpected left message: {view:?}"),
+                    reason => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({}) left with unknown reason id {reason}",
+                        view.client_id()
+                    ),
                 },
             }
         }
