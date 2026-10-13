@@ -4,7 +4,7 @@ use crate::types::{
 };
 use crate::types::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
-use log::{error, warn};
+use log::warn;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -95,22 +95,9 @@ impl SocketConn {
     pub(crate) async fn write_data(&mut self, payload: &str) -> anyhow::Result<()> {
         debug_assert!(payload.ends_with("\n\r"));
         self.conn
-            .write(payload.as_bytes())
+            .write_all(payload.as_bytes())
             .await
-            .map(|size| {
-                if size != payload.len() {
-                    error!(
-                        "Error payload size mismatch! expect {} but {size} found. payload: {payload:?}",
-                        payload.len(),
-                    )
-                }
-            })
-            .map_err(|e| anyhow!("Got error while send data: {e:?}"))?;
-        /*self.conn
-        .flush()
-        .await
-        .inspect_err(|e| anyhow!("Got error while flush data: {e:?}"))?;*/
-        Ok(())
+            .map_err(|e| anyhow!("Got error while send data: {e:?}"))
     }
 
     async fn write_and_read(&mut self, payload: &str) -> anyhow::Result<String> {
