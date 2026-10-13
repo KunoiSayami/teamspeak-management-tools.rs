@@ -131,10 +131,7 @@ impl SocketConn {
         payload: &str,
     ) -> QueryResult<Vec<T>> {
         let data = self.write_and_read(payload).await?;
-        let ret = Self::decode_status_with_result(data)?;
-        Ok(ret
-            .ok_or_else(|| panic!("Can't find result line, payload => {payload}"))
-            .unwrap())
+        Self::decode_status_with_result(data)?.ok_or_else(QueryError::static_empty_response)
     }
 
     async fn query_operation<T: FromQueryString + Sized>(
@@ -152,7 +149,7 @@ impl SocketConn {
     ) -> QueryResult<Option<T>> {
         self.query_operation(payload)
             .await
-            .map(|r| r.map(|mut v| v.swap_remove(0)))
+            .map(|r| r.and_then(|v| v.into_iter().next()))
     }
 
     fn escape(s: &str) -> String {
