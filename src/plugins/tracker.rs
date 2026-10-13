@@ -57,7 +57,7 @@ async fn create_new_database(conn: &mut SqliteConnection) -> DatabaseResult<()> 
 }
 
 async fn insert_database_version(conn: &mut SqliteConnection) -> DatabaseResult<()> {
-    sqlx::query(r#"INSERT INTO "meta" VALUES ("version", ?)"#)
+    sqlx::query(r#"INSERT INTO "meta" VALUES ('version', ?)"#)
         .bind(VERSION)
         .execute(conn)
         .await

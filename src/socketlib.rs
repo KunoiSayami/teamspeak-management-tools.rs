@@ -253,7 +253,8 @@ impl SocketConn {
     }
 
     pub(crate) async fn query_clients(&mut self) -> QueryResult<Vec<Client>> {
-        self.query_operation_non_error("clientlist\n\r").await
+        // -uid is required so Client::client_unique_identifier is always present
+        self.query_operation_non_error("clientlist -uid\n\r").await
     }
 
     pub(crate) async fn move_client(
