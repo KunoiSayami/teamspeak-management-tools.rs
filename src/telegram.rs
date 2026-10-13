@@ -254,6 +254,11 @@ mod thread {
 
     const QUERY_BOT_ERROR: &str = "Query bot error";
 
+    /// Upper bound of unsent messages kept per bot, the oldest entries are
+    /// dropped when exceeded so a prolonged send failure cannot grow the
+    /// queue without limit.
+    const MAX_PENDING_MESSAGES: usize = 1024;
+
     pub fn telegram_bootstrap(
         configs: &Vec<(String, Config)>,
         notifier: Arc<Notify>,
@@ -364,11 +369,13 @@ mod thread {
                         break;
                     };
                     if let Some(bot_id) = config_map.get(&config_id) {
-                        bot_map
-                            .get_mut(bot_id)
-                            .expect(QUERY_BOT_ERROR)
-                            .1
-                            .push((config_id, data));
+                        let (_, queue) = bot_map.get_mut(bot_id).expect(QUERY_BOT_ERROR);
+                        queue.push((config_id, data));
+                        if queue.len() > MAX_PENDING_MESSAGES {
+                            let overflow = queue.len() - MAX_PENDING_MESSAGES;
+                            queue.drain(..overflow);
+                            warn!("Dropped {overflow} pending telegram messages for {bot_id}");
+                        }
                     }
                 }
 
