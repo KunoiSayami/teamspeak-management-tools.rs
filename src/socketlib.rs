@@ -355,3 +355,220 @@ impl SocketConn {
             .await
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
+
+    /// Banner a TeamSpeak ServerQuery endpoint sends on connect. It must NOT
+    /// contain a status line: readers keep un-consumed bytes buffered, so a
+    /// stray status line here would be handed back as the reply to the
+    /// client's first real command.
+    const BANNER: &str = "Welcome to the TeamSpeak 3 ServerQuery interface.\n\r";
+
+    /// A scripted in-process TeamSpeak ServerQuery server.
+    ///
+    /// Binds 127.0.0.1:0 so tests never collide on a fixed port. Every
+    /// received command name is recorded and exposed via `received()`.
+    pub struct FakeServer {
+        port: u16,
+        received: Arc<Mutex<Vec<String>>>,
+        shutdown: Option<oneshot::Sender<()>>,
+    }
+
+    impl FakeServer {
+        /// `responder` maps a command name to the exact bytes to reply.
+        /// Returning `None` sends nothing, which lets a test simulate a
+        /// server that stops answering.
+        pub async fn start<F>(responder: F) -> Self
+        where
+            F: Fn(&str) -> Option<Vec<u8>> + Send + Sync + 'static,
+        {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let received = Arc::new(Mutex::new(Vec::new()));
+            let (shutdown, mut shutdown_rx) = oneshot::channel::<()>();
+            let responder = Arc::new(responder);
+            let recorded = received.clone();
+
+            tokio::spawn(async move {
+                loop {
+                    let accept = tokio::select! {
+                        ret = listener.accept() => ret,
+                        _ = &mut shutdown_rx => break,
+                    };
+                    let Ok((mut stream, _)) = accept else { break };
+                    let responder = responder.clone();
+                    let recorded = recorded.clone();
+                    tokio::spawn(async move {
+                        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                        stream.write_all(BANNER.as_bytes()).await.ok();
+                        let mut buf = Vec::new();
+                        let mut chunk = [0u8; 1024];
+                        while let Ok(n) = stream.read(&mut chunk).await {
+                            if n == 0 {
+                                break;
+                            }
+                            buf.extend_from_slice(&chunk[..n]);
+                            while let Some(pos) = find_frame_end(&buf) {
+                                let frame: Vec<u8> = buf.drain(..pos).collect();
+                                let line = &frame[..frame.len() - 2];
+                                let command = String::from_utf8_lossy(line)
+                                    .split_whitespace()
+                                    .next()
+                                    .unwrap_or_default()
+                                    .to_string();
+                                recorded.lock().unwrap().push(command.clone());
+                                if let Some(reply) = responder(&command)
+                                    && stream.write_all(&reply).await.is_err()
+                                {
+                                    return;
+                                }
+                            }
+                        }
+                    });
+                }
+            });
+
+            Self {
+                port,
+                received,
+                shutdown: Some(shutdown),
+            }
+        }
+
+        pub fn port(&self) -> u16 {
+            self.port
+        }
+
+        pub fn received(&self) -> Vec<String> {
+            self.received.lock().unwrap().clone()
+        }
+    }
+
+    impl Drop for FakeServer {
+        fn drop(&mut self) {
+            if let Some(tx) = self.shutdown.take() {
+                let _ = tx.send(());
+            }
+        }
+    }
+
+    /// Index just past the first `\n\r` terminator in `buf`.
+    fn find_frame_end(buf: &[u8]) -> Option<usize> {
+        buf.windows(2).position(|w| w == b"\n\r").map(|i| i + 2)
+    }
+
+    /// Standard success replies for the commands this crate issues.
+    fn default_responder(command: &str) -> Option<Vec<u8>> {
+        let body = match command {
+            "login" => "error id=0 msg=ok\n\r",
+            "use" => "error id=0 msg=ok\n\r",
+            "clientupdate" => "error id=0 msg=ok\n\r",
+            "whoami" => {
+                "client_id=2 client_database_id=2 client_nickname=obs\n\rerror id=0 msg=ok\n\r"
+            }
+            "clientlist" => concat!(
+                "clid=1 cid=1 client_database_id=1 client_nickname=alice client_type=0",
+                "|clid=2 cid=1 client_database_id=2 client_nickname=obs client_type=1",
+                "\n\rerror id=0 msg=ok\n\r"
+            ),
+            "channellist" => "cid=1 pid=0 channel_name=Lobby\n\rerror id=0 msg=ok\n\r",
+            "serverinfo" => "virtualserver_unique_identifier=TESTSERVER=\n\rerror id=0 msg=ok\n\r",
+            "servernotifyregister" => "error id=0 msg=ok\n\r",
+            "banlist" => "error id=1281 msg=database empty\n\r",
+            "quit" => "error id=0 msg=ok\n\r",
+            _ => return None,
+        };
+        Some(body.as_bytes().to_vec())
+    }
+
+    /// Accepts one connection, emits a single notification split across two
+    /// writes, and leaves the socket open. The emission is gated on the
+    /// client's first command: writing earlier races with `connect`, which
+    /// drains the banner and would swallow the event.
+    pub async fn start_split_server() -> u16 {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream.write_all(BANNER.as_bytes()).await.unwrap();
+            let mut buf = [0u8; 64];
+            let _ = stream.read(&mut buf).await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            stream
+                .write_all(b"notifycliententerview ctid=1 clid=100 client_nickname=Split")
+                .await
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            stream
+                .write_all(b"User client_unique_identifier=SPLITUID= client_country=US\n\r")
+                .await
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(800)).await;
+        });
+        port
+    }
+
+    #[tokio::test]
+    async fn connect_login_and_select_server_round_trip() {
+        let server = FakeServer::start(default_responder).await;
+        let mut conn = SocketConn::connect("127.0.0.1", server.port())
+            .await
+            .unwrap();
+        conn.login("serveradmin", "secret").await.unwrap();
+        conn.select_server(1).await.unwrap();
+
+        assert_eq!(server.received(), vec!["login", "use"]);
+    }
+
+    #[tokio::test]
+    async fn query_clients_parses_multiple_records() {
+        let server = FakeServer::start(default_responder).await;
+        let mut conn = SocketConn::connect("127.0.0.1", server.port())
+            .await
+            .unwrap();
+
+        let clients = conn.query_clients().await.unwrap();
+        assert_eq!(clients.len(), 2);
+        assert_eq!(clients[0].client_nickname(), "alice");
+        assert!(clients[0].client_is_user());
+        assert_eq!(clients[1].client_nickname(), "obs");
+        assert!(!clients[1].client_is_user());
+    }
+
+    #[tokio::test]
+    async fn empty_record_set_is_an_error_not_a_panic() {
+        // A status line with no record line before it.
+        let server = FakeServer::start(|command| match command {
+            "clientlist" => Some(b"error id=0 msg=ok\n\r".to_vec()),
+            _ => default_responder(command),
+        })
+        .await;
+        let mut conn = SocketConn::connect("127.0.0.1", server.port())
+            .await
+            .unwrap();
+
+        // Parsing an empty record set must fail as an Err, never by aborting
+        // the process. Fixing the behaviour is a separate decision.
+        assert!(conn.query_clients().await.is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "fails until the read buffer moves onto SocketConn"]
+    async fn read_event_reassembles_a_split_notification() {
+        let port = start_split_server().await;
+        let mut conn = SocketConn::connect("127.0.0.1", port).await.unwrap();
+        conn.write_data("whoami\n\r").await.unwrap();
+
+        let event = conn.read_event().await.unwrap().unwrap();
+        assert!(
+            event.contains("client_unique_identifier=SPLITUID="),
+            "event was truncated, got {event:?}"
+        );
+    }
+}

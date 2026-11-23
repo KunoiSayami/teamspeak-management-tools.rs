@@ -126,3 +126,35 @@ jobs:
           files: target/aarch64-unknown-linux-musl/release/teamspeak-management-tools_linux_aarch64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v6
+      - name: Cache Cargo packages
+        id: cache-cargo
+        uses: actions/cache@v5
+        with:
+          key: ${{ runner.os }}-cargo-test
+          path: |
+            ~/.cargo
+            ~/.rustup
+            $PWD/target
+      - if: ${{ steps.cache-cargo.outputs.cache-hit != 'true' }}
+        name: Update rust
+        run: rustup update
+      # rustfmt and clippy are not guaranteed on a fresh runner image, and
+      # `rustup update` is skipped when the cache hits.
+      - name: Install lint components
+        run: rustup component add rustfmt clippy
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-features --all-targets
+      - name: Test
+        run: cargo test --all-features
+      - name: Test (default features)
+        run: cargo test
