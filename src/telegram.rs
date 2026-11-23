@@ -76,7 +76,48 @@ mod types {
                             }
                         )
                     }
-                    _ => unreachable!("Got unexpected left message: {view:?}"),
+                    // Unrecognised reason ids must never panic: an unknown
+                    // value here used to abort the Telegram sender task and
+                    // silently disable every later notification.
+                    1 => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) left the server{reason}",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id(),
+                        reason = if view.reason().is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", view.reason())
+                        }
+                    ),
+                    10 => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) disconnected: server shutdown",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id()
+                    ),
+                    11 => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) switched to another server",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id()
+                    ),
+                    other => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) left (reasonid={other}{reason})",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id(),
+                        other = other,
+                        reason = if view.reason().is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", view.reason())
+                        }
+                    ),
                 },
             }
         }
@@ -659,3 +700,74 @@ mod test {
 
 pub use thread::telegram_bootstrap;
 pub use types::{BindTelegramHelper, TelegramHelper};
+
+#[cfg(test)]
+mod test {
+    // `TelegramData` is `pub(super)` inside `mod types`, so it is nameable
+    // here. `NotifyClientLeftView` lives in `crate::types`: `mod types`' own
+    // import of it is private, not a re-export.
+    use super::types::TelegramData;
+    use crate::types::{FromQueryString, NotifyClientLeftView};
+
+    fn left_view(reason_id: i64, reason: &str) -> NotifyClientLeftView {
+        let line = if reason.is_empty() {
+            format!("clid=42 reasonid={reason_id}")
+        } else {
+            format!("clid=42 reasonid={reason_id} reasonmsg={reason}")
+        };
+        NotifyClientLeftView::from_query(&line)
+            .unwrap_or_else(|e| panic!("fixture must parse: {e:?}"))
+    }
+
+    /// Renders via the public `Display` impl. `TelegramData::from_left` is
+    /// private to `mod types`, so build the variant directly.
+    fn render(reason_id: i64, reason: &str) -> String {
+        TelegramData::Left(
+            "2026-01-01 00:00:00".to_string(),
+            left_view(reason_id, reason),
+            "alice".to_string(),
+        )
+        .to_string()
+    }
+
+    #[test]
+    fn renders_every_known_reason_id_without_panicking() {
+        // reasonid=1 previously hit unreachable!() and aborted the Telegram
+        // sender task, silently disabling every later notification.
+        for id in [1i64, 3, 5, 6, 8, 10, 11, 999] {
+            let out = render(id, "bye");
+            assert!(
+                out.contains("alice"),
+                "reasonid={id} produced output without the nickname: {out}"
+            );
+            assert!(
+                out.starts_with("[2026-01-01 00:00:00]"),
+                "reasonid={id} produced output without the timestamp: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_reason_id_preserves_the_id_for_diagnosis() {
+        let out = render(999, "mystery");
+        assert!(out.contains("reasonid=999"), "got {out}");
+        assert!(out.contains("mystery"), "got {out}");
+    }
+
+    #[test]
+    fn reason_id_one_worded_as_voluntary_leave() {
+        let out = render(1, "");
+        assert!(out.contains("left the server"), "got {out}");
+        assert!(
+            !out.contains("):"),
+            "empty reason left a dangling separator: {out}"
+        );
+    }
+
+    #[test]
+    fn formatter_is_total_over_reason_id_range() {
+        for id in [0i64, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, i64::MAX, -1] {
+            let _ = render(id, "x");
+        }
+    }
+}
