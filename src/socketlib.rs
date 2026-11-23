@@ -4,15 +4,29 @@ use crate::types::{
 };
 use crate::types::{FromQueryString, QueryStatus};
 use anyhow::anyhow;
-use log::{error, warn};
+use log::{error, trace, warn};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 const BUFFER_SIZE: usize = 512;
 
+/// Removes and returns the first "\n\r"-terminated frame from `buf`,
+/// leaving any trailing bytes in place.
+fn take_frame(buf: &mut String) -> Option<String> {
+    let end = buf.find("\n\r")? + "\n\r".len();
+    Some(buf.drain(..end).collect())
+}
+
 pub struct SocketConn {
     conn: TcpStream,
+    /// Bytes received but not yet delivered as a complete frame.
+    ///
+    /// This lives on the connection rather than in a read future because
+    /// `read_event` is polled inside `tokio::select!` and cancelled every
+    /// `misc.interval` milliseconds. A future-local buffer would be dropped
+    /// mid-frame, losing whatever had already arrived.
+    pending: String,
 }
 
 impl SocketConn {
@@ -32,40 +46,45 @@ impl SocketConn {
         Err(QueryError::static_empty_response())
     }
 
-    async fn read_inner(
-        &mut self,
-        timeout: Option<Duration>,
-        is_complete: impl Fn(&str, usize) -> bool,
-    ) -> anyhow::Result<Option<String>> {
+    /// Reads once from the socket into `self.pending`.
+    ///
+    /// Returns `Ok(false)` on EOF or timeout, matching the old `read_inner`
+    /// contract that produced `Ok(None)`.
+    async fn fill(&mut self, timeout: Option<Duration>) -> anyhow::Result<bool> {
         let mut buffer = [0u8; BUFFER_SIZE];
-        let mut ret = String::new();
-        loop {
-            let size = match timeout {
-                Some(dur) => match tokio::time::timeout(dur, self.conn.read(&mut buffer)).await {
-                    Ok(Ok(n)) => n,
-                    Ok(Err(e)) => return Err(anyhow!("Got error while read data: {e:?}")),
-                    Err(_) => return Ok(None),
-                },
-                None => self
-                    .conn
-                    .read(&mut buffer)
-                    .await
-                    .map_err(|e| anyhow!("Got error while read data: {e:?}"))?,
-            };
-            if size == 0 {
-                return Ok(None);
-            }
-            ret.push_str(&String::from_utf8_lossy(&buffer[..size]));
-            if is_complete(&ret, size) {
-                break;
-            }
+        let size = match timeout {
+            Some(dur) => match tokio::time::timeout(dur, self.conn.read(&mut buffer)).await {
+                Ok(Ok(n)) => n,
+                Ok(Err(e)) => return Err(anyhow!("Got error while read data: {e:?}")),
+                Err(_) => return Ok(false),
+            },
+            None => self
+                .conn
+                .read(&mut buffer)
+                .await
+                .map_err(|e| anyhow!("Got error while read data: {e:?}"))?,
+        };
+        if size == 0 {
+            return Ok(false);
         }
-        Ok(Some(ret))
+        self.pending
+            .push_str(&String::from_utf8_lossy(&buffer[..size]));
+        Ok(true)
     }
 
     pub async fn read_event(&mut self) -> anyhow::Result<Option<String>> {
-        self.read_inner(None, |s, size| size < BUFFER_SIZE || s.ends_with("\n\r"))
-            .await
+        // Return at most one event per call. Leftover bytes stay in
+        // `self.pending` for the next call, so a frame split across TCP
+        // segments survives cancellation of this future by the caller's
+        // select!.
+        loop {
+            if let Some(frame) = take_frame(&mut self.pending) {
+                return Ok(Some(frame));
+            }
+            if !self.fill(None).await? {
+                return Ok(None);
+            }
+        }
     }
 
     fn decode_status_with_result<T: FromQueryString + Sized>(
@@ -86,10 +105,14 @@ impl SocketConn {
     }
 
     pub(crate) async fn read_data(&mut self) -> anyhow::Result<Option<String>> {
-        self.read_inner(Some(Duration::from_secs(2)), |s, _| {
-            s.contains("error id=") && s.ends_with("\n\r")
-        })
-        .await
+        loop {
+            if self.pending.contains("error id=") && self.pending.ends_with("\n\r") {
+                return Ok(Some(std::mem::take(&mut self.pending)));
+            }
+            if !self.fill(Some(Duration::from_secs(2))).await? {
+                return Ok(None);
+            }
+        }
     }
 
     pub(crate) async fn write_data(&mut self, payload: &str) -> anyhow::Result<()> {
@@ -168,15 +191,21 @@ impl SocketConn {
 
         //let bufreader = BufReader::new(conn);
         //conn.set_nonblocking(true).unwrap();
-        let mut self_ = Self { conn };
+        let mut self_ = Self {
+            conn,
+            pending: String::new(),
+        };
 
-        let content = self_
-            .read_data()
-            .await
-            .map_err(|e| anyhow!("Got error in connect while read content: {e:?}"))?;
-
-        if content.is_none() {
-            warn!("Read none data.");
+        // Consume the banner. It is the first framed message but is not a
+        // command response: leaving it in `pending` makes the next
+        // `read_data` return banner and status together, which corrupts the
+        // first reply. Reading it here also avoids the old stall where
+        // `read_data` waited out its whole timeout because a banner never
+        // contains "error id=".
+        match self_.read_event().await {
+            Ok(Some(frame)) => trace!("Consumed ServerQuery banner: {frame:?}"),
+            Ok(None) => warn!("Read none data."),
+            Err(e) => return Err(anyhow!("Got error in connect while read content: {e:?}")),
         }
 
         Ok(self_)
@@ -558,8 +587,95 @@ mod test {
         assert!(conn.query_clients().await.is_err());
     }
 
+    /// Reproduces the observer loop's shape: `read_event` raced against a
+    /// short `recv` timeout inside `tokio::select!`, at the shipped default
+    /// interval of 5 ms. With a future-local buffer the partial frame is
+    /// dropped on every timer tick and the event is lost outright.
     #[tokio::test]
-    #[ignore = "fails until the read buffer moves onto SocketConn"]
+    async fn split_event_survives_the_observers_select_loop() {
+        use tokio::sync::mpsc;
+
+        let port = start_split_server().await;
+        let mut conn = SocketConn::connect("127.0.0.1", port).await.unwrap();
+        conn.write_data("whoami\n\r").await.unwrap();
+
+        let (_tx, mut recv) = mpsc::channel::<u8>(8);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+        let mut collected = String::new();
+        while tokio::time::Instant::now() < deadline {
+            let data = tokio::select! {
+                m = tokio::time::timeout(std::time::Duration::from_millis(5), recv.recv()) => {
+                    let _ = m;
+                    continue
+                }
+                d = conn.read_event() => d.unwrap(),
+            };
+            if let Some(s) = data {
+                collected.push_str(&s);
+                if collected.contains("client_unique_identifier=SPLITUID=") {
+                    return;
+                }
+            }
+        }
+        panic!("event lost under select!; got {collected:?}");
+    }
+
+    #[tokio::test]
+    async fn read_event_returns_one_frame_per_call() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream.write_all(BANNER.as_bytes()).await.unwrap();
+            let mut buf = [0u8; 64];
+            let _ = stream.read(&mut buf).await.unwrap();
+            // Two complete frames in a single write.
+            let two = concat!(
+                "notifycliententerview ctid=1 clid=1 client_nickname=A\n\r",
+                "notifycliententerview ctid=1 clid=2 client_nickname=B\n\r"
+            );
+            stream.write_all(two.as_bytes()).await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        });
+
+        let mut conn = SocketConn::connect("127.0.0.1", port).await.unwrap();
+        conn.write_data("whoami\n\r").await.unwrap();
+
+        let first = conn.read_event().await.unwrap().unwrap();
+        let second = conn.read_event().await.unwrap().unwrap();
+        assert!(first.contains("nickname=A"), "got {first:?}");
+        assert!(second.contains("nickname=B"), "got {second:?}");
+    }
+
+    #[tokio::test]
+    async fn read_event_returns_unknown_event_verbatim() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            stream.write_all(BANNER.as_bytes()).await.unwrap();
+            let mut buf = [0u8; 64];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream
+                .write_all(b"notifyclientsomethingnew clid=7 extra=1\n\r")
+                .await
+                .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        });
+
+        let mut conn = SocketConn::connect("127.0.0.1", port).await.unwrap();
+        conn.write_data("whoami\n\r").await.unwrap();
+
+        // The reader is parser-agnostic: unknown events reach the observer
+        // intact, where they are logged and skipped.
+        let event = conn.read_event().await.unwrap().unwrap();
+        assert_eq!(event, "notifyclientsomethingnew clid=7 extra=1\n\r");
+    }
+    #[tokio::test]
     async fn read_event_reassembles_a_split_notification() {
         let port = start_split_server().await;
         let mut conn = SocketConn::connect("127.0.0.1", port).await.unwrap();

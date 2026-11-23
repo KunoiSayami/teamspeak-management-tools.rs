@@ -421,7 +421,13 @@ pub async fn observer_thread(
             }
             trace!("[{thread_id}] {line}",);
 
-            staff(line, &mut client_map, &mut conn, &arguments).await?;
+            // One unhandleable event must not end the whole observer: a single
+            // malformed or unknown notification used to propagate out of here
+            // and take the process down with it. Socket-level read failures
+            // still terminate the loop, since those are handled above.
+            if let Err(e) = staff(line, &mut client_map, &mut conn, &arguments).await {
+                error!("[{thread_id}] Unable handle event {line:?}: {e:?}");
+            }
         }
         //trace!("message loop end");
     }
