@@ -315,7 +315,20 @@ mod controller {
                 let kv_map = connection.fork().await?;
                 let exit_notify = exit_notify.clone();
                 let arg = controller_arg.clone();
-                let map = user_state_map.get(&config.get_id()).unwrap().clone();
+                let map = match user_state_map.get(&config.get_id()) {
+                    Some(map) => map.clone(),
+                    None => {
+                        // telegram_bootstrap must insert a state for every
+                        // config. A miss here means one was skipped without
+                        // registering, so fail with a name instead of an
+                        // opaque Option::unwrap panic.
+                        anyhow::bail!(
+                            "No user state registered for config {}; telegram_bootstrap must \
+                             insert SafeUserState for every config",
+                            config.get_id()
+                        );
+                    }
+                };
                 v.push(Controller::new(Box::pin(async move {
                     let result = bootstrap(config, thread_id.clone(), arg, kv_map, map).await;
                     exit_notify.notify_waiters();

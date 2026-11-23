@@ -327,6 +327,9 @@ mod thread {
             // Get bot self ID
             let Some((bot_id, _)) = config.telegram().api_key().split_once(':') else {
                 warn!("Configure: [{config_id}] token in invalid format, ignore.",);
+                // A state must still be registered: bootstrap_controller looks
+                // this config up by id and previously panicked on the miss.
+                user_state_map.insert(config_id, SafeUserState::create_none());
                 continue;
             };
 
@@ -762,6 +765,53 @@ mod test {
             !out.contains("):"),
             "empty reason left a dangling separator: {out}"
         );
+    }
+
+    /// Every config must end up with a `SafeUserState`, whatever its token
+    /// looks like. A miss previously panicked in bootstrap_controller.
+    #[tokio::test]
+    async fn every_config_gets_a_user_state_entry() {
+        use crate::configure::Config;
+
+        fn write(name: &str, token: &str, server_id: i64) -> std::path::PathBuf {
+            let dir = std::env::temp_dir().join("tsmt-telegram-test");
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join(name);
+            let contents = format!(
+                "[server]\nchannel-id = [1]\nprivilege-group-id = 5\n\
+                 server-id = {server_id}\nleveldb = \"./level.db\"\n\n\
+                 [telegram]\napi-key = \"{token}\"\ntarget = 0\n\n\
+                 [misc]\ninterval = 5\n\n\
+                 [raw-query]\nserver = \"127.0.0.1\"\nport = 10011\n\
+                 user = \"u\"\npassword = \"p\"\n"
+            );
+            std::fs::write(&path, contents).unwrap();
+            path
+        }
+
+        // Distinct server ids, otherwise both configs hash to one id and the
+        // second insert hides the first.
+        let healthy = write("telegram-healthy.toml", "123456:token", 1);
+        let malformed = write("telegram-malformed.toml", "no-colon-here", 2);
+
+        let a = Config::load(healthy.to_str().unwrap()).await.unwrap();
+        let b = Config::load(malformed.to_str().unwrap()).await.unwrap();
+        let configs = vec![(a.get_id(), a), (b.get_id(), b)];
+        let ids: Vec<String> = configs.iter().map(|(id, _)| id.clone()).collect();
+        assert_ne!(ids[0], ids[1], "fixtures must have distinct ids");
+
+        let (_handle, _helper, states) = crate::telegram::telegram_bootstrap(
+            &configs,
+            std::sync::Arc::new(tokio::sync::Notify::new()),
+        )
+        .unwrap();
+
+        for id in &ids {
+            assert!(
+                states.contains_key(id),
+                "no user state registered for config {id}"
+            );
+        }
     }
 
     #[test]
