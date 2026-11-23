@@ -333,7 +333,29 @@ pub mod config {
             let mut buf = String::new();
 
             file.read_to_string(&mut buf).await?;
-            toml::from_str(&buf).map_err(|e| anyhow!("Deserialize failure: {e:?}"))
+            toml::from_str(&buf).map_err(|e| {
+                // Never format the toml error with `{e:?}`: its Debug output
+                // embeds the whole input, which includes raw-query.password.
+                // `message()` is the reason alone. `span()` locates the
+                // offending value, but is degenerate (0..0) for missing
+                // fields and tables, so a position is only reported when it
+                // actually carries information.
+                let message = e.message().to_string();
+                match e.span().filter(|span| span.start < span.end) {
+                    Some(span) => {
+                        // Byte offset to 1-based line and column within it.
+                        let before = &buf[..span.start.min(buf.len())];
+                        let line = before.matches('\n').count() + 1;
+                        let column = before
+                            .rfind('\n')
+                            .map(|i| before.len() - i)
+                            .unwrap_or(before.len() + 1);
+                        anyhow!("Unable to parse config: {message}")
+                            .context(format!("{path}:{line}:{column}"))
+                    }
+                    None => anyhow!("Unable to parse config {path}: {message}"),
+                }
+            })
         }
 
         pub async fn load_kv_map(&self) -> anyhow::Result<(Backend, Box<dyn ForkConnection>)> {
@@ -355,3 +377,100 @@ pub mod config {
 }
 
 pub use config::Config;
+
+#[cfg(test)]
+mod test {
+    use super::Config;
+
+    /// A config with one deliberately invalid value and a secret in
+    /// `raw-query.password`. Only the invalid value may appear in the error.
+    const BAD_CONFIG: &str = r#"
+[server]
+channel-id = [1]
+privilege-group-id = 5
+leveldb = "./level.db"
+
+[telegram]
+api-key = ""
+target = 0
+
+[misc]
+interval = 5
+
+[raw-query]
+server = "127.0.0.1"
+port = "not-a-number"
+user = "serveradmin"
+password = "SUPERSECRETVALUE"
+"#;
+
+    fn write_temp(name: &str, contents: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join("tsmt-configure-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, contents).unwrap();
+        path
+    }
+
+    /// `main` returns anyhow::Result, and Rust's Termination impl prints the
+    /// error with Debug - so assert on Debug, matching production output.
+    #[tokio::test]
+    async fn parse_error_does_not_include_the_password() {
+        let path = write_temp("bad-password.toml", BAD_CONFIG);
+        let err = Config::load(path.to_str().unwrap()).await.unwrap_err();
+        let rendered = format!("{err:?}");
+        assert!(
+            !rendered.contains("SUPERSECRETVALUE"),
+            "config error leaked the password: {rendered}"
+        );
+        assert!(
+            rendered.contains("invalid type"),
+            "config error is uninformative: {rendered}"
+        );
+    }
+
+    #[tokio::test]
+    async fn parse_error_reports_a_location_for_type_errors() {
+        // A wrong type is the case where toml supplies a usable span. Derive
+        // the expected line from the fixture so editing it cannot break the
+        // assertion for the wrong reason.
+        let expected_line = BAD_CONFIG
+            .lines()
+            .position(|line| line.starts_with("port ="))
+            .expect("fixture must contain the invalid port")
+            + 1;
+
+        let path = write_temp("bad-location.toml", BAD_CONFIG);
+        let err = Config::load(path.to_str().unwrap()).await.unwrap_err();
+        let rendered = format!("{err:?}");
+        assert!(
+            rendered.contains(&format!(":{expected_line}:")),
+            "type error should name line {expected_line}, got: {rendered}"
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_field_error_does_not_invent_a_location() {
+        // Missing fields yield a degenerate span (0..0); reporting path:1:1
+        // would be misleading. The message alone must name the key.
+        let contents = "[server]\nchannel-id = [1]\nprivilege-group-id = 5\n\
+                        leveldb = \"./level.db\"\n[telegram]\napi-key = \"\"\ntarget = 0\n\
+                        [misc]\ninterval = 5\n[raw-query]\nport = 10011\n\
+                        password = \"SUPERSECRETVALUE\"\n";
+        let path = write_temp("missing-field.toml", contents);
+        let err = Config::load(path.to_str().unwrap()).await.unwrap_err();
+        let rendered = format!("{err:?}");
+        assert!(
+            !rendered.contains("SUPERSECRETVALUE"),
+            "config error leaked the password: {rendered}"
+        );
+        assert!(
+            rendered.contains("missing field"),
+            "error should name the missing field, got: {rendered}"
+        );
+        assert!(
+            !rendered.contains(":1:1"),
+            "should not report a bogus position for a degenerate span: {rendered}"
+        );
+    }
+}
