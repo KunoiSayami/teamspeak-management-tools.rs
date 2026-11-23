@@ -196,16 +196,45 @@ impl SocketConn {
             pending: String::new(),
         };
 
-        // Consume the banner. It is the first framed message but is not a
-        // command response: leaving it in `pending` makes the next
-        // `read_data` return banner and status together, which corrupts the
-        // first reply. Reading it here also avoids the old stall where
-        // `read_data` waited out its whole timeout because a banner never
-        // contains "error id=".
-        match self_.read_event().await {
-            Ok(Some(frame)) => trace!("Consumed ServerQuery banner: {frame:?}"),
-            Ok(None) => warn!("Read none data."),
-            Err(e) => return Err(anyhow!("Got error in connect while read content: {e:?}")),
+        // Consume the greeting, which is not a command response. A real
+        // TeamSpeak server sends it as *two* frames - the protocol marker
+        // ("TS3") and then the welcome banner - though some endpoints send
+        // only the welcome line. Anything left here would be returned as the
+        // first command's reply and corrupt it, so consume frames until the
+        // welcome banner has been seen.
+        //
+        // Bounded both by frame count and by a timeout: a non-conforming peer
+        // must not hang startup. Consuming extra frames is safe because no
+        // command has been sent yet, so nothing else can be in flight.
+        let greeting = async {
+            for _ in 0..4 {
+                match self_.read_event().await {
+                    Ok(Some(frame)) => {
+                        trace!("Consumed ServerQuery greeting frame: {frame:?}");
+                        // The banner names the interface; the "TS3" marker
+                        // does not.
+                        if frame.contains("ServerQuery interface") {
+                            return Ok::<bool, anyhow::Error>(true);
+                        }
+                    }
+                    Ok(None) => return Ok(false),
+                    Err(e) => {
+                        return Err(anyhow!("Got error in connect while read content: {e:?}"));
+                    }
+                }
+            }
+            Ok(true)
+        };
+
+        match tokio::time::timeout(Duration::from_secs(5), greeting).await {
+            Ok(Ok(true)) => {}
+            Ok(Ok(false)) => warn!("Read none data."),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                return Err(anyhow!(
+                    "Timed out waiting for the ServerQuery greeting from {server}:{port}"
+                ));
+            }
         }
 
         Ok(self_)
@@ -392,11 +421,18 @@ mod test {
     use tokio::net::TcpListener;
     use tokio::sync::oneshot;
 
-    /// Banner a TeamSpeak ServerQuery endpoint sends on connect. It must NOT
-    /// contain a status line: readers keep un-consumed bytes buffered, so a
-    /// stray status line here would be handed back as the reply to the
-    /// client's first real command.
-    const BANNER: &str = "Welcome to the TeamSpeak 3 ServerQuery interface.\n\r";
+    /// Greeting a real TeamSpeak server sends on connect: TWO frames, the
+    /// protocol marker and then the welcome banner. Sending only the banner
+    /// here hid a real bug, where connect() consumed one frame and left the
+    /// other to corrupt the first command reply.
+    ///
+    /// It must NOT contain a status line: un-consumed bytes are buffered, so
+    /// a stray status line would be handed back as the next reply.
+    const BANNER: &str = concat!(
+        "TS3\n\r",
+        "Welcome to the TeamSpeak 3 ServerQuery interface, type \"help\" for a list of \
+         commands and \"help <command>\" for information on a specific command.\n\r"
+    );
 
     /// A scripted in-process TeamSpeak ServerQuery server.
     ///
