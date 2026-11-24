@@ -169,10 +169,15 @@ pub async fn auto_channel_staff(
                         }
                     }
                     AutoChannelEvent::DeleteChannel(client_id, uid) => {
-                        let result = conn
-                            .client_get_database_id_from_uid(&uid)
-                            .await
-                            .map_err(|e| anyhow!("Got error while query {uid} {e:?}",))?;
+                        // A failed lookup for one user must not end the shared worker:
+                        // log and continue to the next event instead.
+                        let result = match conn.client_get_database_id_from_uid(&uid).await {
+                            Ok(r) => r,
+                            Err(e) => {
+                                error!("[{thread_id}] Reset lookup failed for {uid}: {e:?}");
+                                continue;
+                            }
+                        };
                         for channel_id in &monitor_channels {
                             let key = build_redis_key(
                                 result.client_database_id(),
