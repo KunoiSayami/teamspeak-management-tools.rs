@@ -3,6 +3,14 @@ pub trait FromQueryString: for<'de> Deserialize<'de> {
     where
         Self: Sized,
     {
+        // Pre-validate: a record whose *value* ends in an unpaired backslash
+        // pushes the deserializer's internal index past the buffer end
+        // (value.rs:129-137), causing an out-of-bounds slice panic on the next
+        // extend_from_slice. Returning Err here is safe: the input is genuinely
+        // malformed and would otherwise crash the process.
+        if data.ends_with('\\') {
+            return Err(anyhow::anyhow!("input ends with an unescaped backslash"));
+        }
         serde_teamspeak_querystring::from_str(data)
             .map_err(|e| anyhow::anyhow!("Got parser error: {e:?}"))
     }
@@ -532,6 +540,8 @@ pub mod ban_entry {
         }
     }
 
+    impl FromQueryString for BanEntry {}
+
     #[cfg(test)]
     mod test {
         use super::BanEntry;
@@ -551,12 +561,10 @@ pub mod ban_entry {
         fn test() {
             TEST_STRING
                 .split('|')
-                .map(|s| BanEntry::from_query(s))
-                .for_each(|entry| drop(entry));
+                .map(BanEntry::from_query)
+                .for_each(drop);
         }
     }
-
-    impl FromQueryString for BanEntry {}
 }
 
 mod status_result {
@@ -975,3 +983,28 @@ pub use status_result::{QueryError, QueryResult};
 pub use to_map::ToNameMap;
 pub use user_state::{ConfigMappedUserState, SafeUserState};
 pub use whoami::WhoAmI;
+
+#[cfg(test)]
+mod trailing_backslash_test {
+    use super::FromQueryString;
+    use crate::types::Client;
+
+    #[test]
+    fn trailing_backslash_returns_err_not_panic() {
+        // The deserializer panics on a value ending in a lone backslash;
+        // our pre-validation must return Err instead.
+        let input = "clid=1 cid=1 client_database_id=1 client_nickname=abc\\";
+        let result = Client::from_query(input);
+        assert!(
+            result.is_err(),
+            "trailing backslash must be an Err, not a panic"
+        );
+    }
+
+    #[test]
+    fn valid_input_still_parses() {
+        let input = "clid=1 cid=1 client_database_id=1 client_nickname=bob client_type=0";
+        let result = Client::from_query(input);
+        assert!(result.is_ok());
+    }
+}

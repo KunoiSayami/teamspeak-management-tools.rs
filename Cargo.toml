@@ -22,7 +22,6 @@ redis = { version = "1", features = ["tokio-comp"] }
 rusty-leveldb = { version = "4.0.0" }
 serde = { version = "1", features = ["derive"] }
 serde-teamspeak-querystring = "0.3.1"
-serde_json = "1"
 sqlx = { version = "0.9", features = [
     "sqlite",
     "runtime-tokio",
@@ -32,6 +31,9 @@ teloxide = { version = "0.17.0", default-features = false, features = [
     "rustls",
     "macros",
 ] }
+# NOTE: reqwest is not imported directly. It exists solely to enable the `socks`
+# feature on the shared reqwest dependency that teloxide uses for its HTTP client;
+# removing it silently drops SOCKS proxy support. Keep it pinned if SOCKS is needed.
 reqwest = { version = "0.12", default-features = false, features = ["socks"] }
 tokio = { version = "1", features = ["full"] }
 toml = "1"

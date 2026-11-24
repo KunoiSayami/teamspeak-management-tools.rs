@@ -84,33 +84,31 @@ pub async fn mute_porter_function(
         if client.client_is_user()
             && client.channel_id() == mute_porter.monitor_channel()
             && !mute_porter.check_whitelist(client.client_database_id())
-        {
-            if let Some(true) = conn
+            && let Some(true) = conn
                 .query_client_info(client.client_id())
                 .await
                 .inspect_err(|e| error!("[{thread_id}] Unable query client information: {e:?}",))
                 .ok()
                 .flatten()
                 .map(|r| r.is_client_muted())
-            {
-                conn.move_client(client.client_id(), mute_porter.target_channel())
-                    .await
-                    .inspect_err(|e| {
-                        error!(
-                            "[{thread_id}] Unable move client {} to channel {}: {e:?}",
-                            client.client_id(),
-                            mute_porter.target_channel(),
-                        )
-                    })
-                    .map(|_| {
-                        info!(
-                            "[{thread_id}] Moved {} to {}",
-                            client.client_id(),
-                            mute_porter.target_channel()
-                        )
-                    })
-                    .ok();
-            }
+        {
+            conn.move_client(client.client_id(), mute_porter.target_channel())
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[{thread_id}] Unable move client {} to channel {}: {e:?}",
+                        client.client_id(),
+                        mute_porter.target_channel(),
+                    )
+                })
+                .map(|_| {
+                    info!(
+                        "[{thread_id}] Moved {} to {}",
+                        client.client_id(),
+                        mute_porter.target_channel()
+                    )
+                })
+                .ok();
         }
     }
     Ok(())
@@ -169,10 +167,15 @@ pub async fn auto_channel_staff(
                         }
                     }
                     AutoChannelEvent::DeleteChannel(client_id, uid) => {
-                        let result = conn
-                            .client_get_database_id_from_uid(&uid)
-                            .await
-                            .map_err(|e| anyhow!("Got error while query {uid} {e:?}",))?;
+                        // A failed lookup for one user must not end the shared worker:
+                        // log and continue to the next event instead.
+                        let result = match conn.client_get_database_id_from_uid(&uid).await {
+                            Ok(r) => r,
+                            Err(e) => {
+                                error!("[{thread_id}] Reset lookup failed for {uid}: {e:?}");
+                                continue;
+                            }
+                        };
                         for channel_id in &monitor_channels {
                             let key = build_redis_key(
                                 result.client_database_id(),

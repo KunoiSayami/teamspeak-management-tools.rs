@@ -76,7 +76,48 @@ mod types {
                             }
                         )
                     }
-                    _ => unreachable!("Got unexpected left message: {view:?}"),
+                    // Unrecognised reason ids must never panic: an unknown
+                    // value here used to abort the Telegram sender task and
+                    // silently disable every later notification.
+                    1 => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) left the server{reason}",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id(),
+                        reason = if view.reason().is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", view.reason())
+                        }
+                    ),
+                    10 => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) disconnected: server shutdown",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id()
+                    ),
+                    11 => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) switched to another server",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id()
+                    ),
+                    other => write!(
+                        f,
+                        "[{time}] <b>{nickname}</b>({client_id}) left (reasonid={other}{reason})",
+                        time = time,
+                        nickname = nickname,
+                        client_id = view.client_id(),
+                        other = other,
+                        reason = if view.reason().is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", view.reason())
+                        }
+                    ),
                 },
             }
         }
@@ -215,27 +256,6 @@ mod types {
             self.channel_id != 0
         }
     }
-
-    pub(super) struct PoolIter<'a> {
-        name: &'a str,
-        iter: std::slice::Iter<'a, String>,
-    }
-
-    impl<'a> From<(&'a str, std::slice::Iter<'a, String>)> for PoolIter<'a> {
-        fn from(value: (&'a str, std::slice::Iter<'a, String>)) -> Self {
-            Self {
-                name: value.0,
-                iter: value.1,
-            }
-        }
-    }
-    impl<'a> Iterator for PoolIter<'a> {
-        type Item = (&'a str, &'a String);
-
-        fn next(&mut self) -> Option<Self::Item> {
-            self.iter.next().map(|s| (self.name, s))
-        }
-    }
 }
 
 mod thread {
@@ -253,6 +273,9 @@ mod thread {
     use tokio::sync::{Notify, broadcast, mpsc};
 
     const QUERY_BOT_ERROR: &str = "Query bot error";
+
+    // Bot id -> [(config id, allowed chat ids)] for bots that answer commands.
+    type BotResponderMap = HashMap<String, Vec<(String, Vec<i64>)>>;
 
     pub fn telegram_bootstrap(
         configs: &Vec<(String, Config)>,
@@ -286,6 +309,9 @@ mod thread {
             // Get bot self ID
             let Some((bot_id, _)) = config.telegram().api_key().split_once(':') else {
                 warn!("Configure: [{config_id}] token in invalid format, ignore.",);
+                // A state must still be registered: bootstrap_controller looks
+                // this config up by id and previously panicked on the miss.
+                user_state_map.insert(config_id, SafeUserState::create_none());
                 continue;
             };
 
@@ -341,10 +367,7 @@ mod thread {
         mut bot_map: HashMap<String, (TelegramBot, Vec<(String, TelegramData)>)>,
         config_map: HashMap<String, String>,
         notifier: Arc<Notify>,
-        (user_state, bot_responder): (
-            ConfigMappedUserState,
-            HashMap<String, Vec<(String, Vec<i64>)>>,
-        ),
+        (user_state, bot_responder): (ConfigMappedUserState, BotResponderMap),
     ) -> anyhow::Result<()> {
         if bot_map.is_empty() {
             info!("No configure found, Send to telegram disabled.");
@@ -471,7 +494,7 @@ mod thread {
 
         use crate::{telegram::types::BotType, types::ConfigMappedUserState};
 
-        use super::{TelegramBot, TelegramData};
+        use super::{BotResponderMap, TelegramBot, TelegramData};
 
         #[derive(BotCommands, Clone)]
         #[command(rename_rule = "lowercase")]
@@ -494,7 +517,7 @@ mod thread {
 
             pub async fn spawn(
                 channel_map: ConfigMappedUserState,
-                bots: HashMap<String, Vec<(String, Vec<i64>)>>,
+                bots: BotResponderMap,
                 bot_map: HashMap<String, (TelegramBot, Vec<(String, TelegramData)>)>,
                 exit_signal: broadcast::Receiver<bool>,
             ) -> Self {
@@ -659,3 +682,121 @@ mod test {
 
 pub use thread::telegram_bootstrap;
 pub use types::{BindTelegramHelper, TelegramHelper};
+
+#[cfg(test)]
+mod test {
+    // `TelegramData` is `pub(super)` inside `mod types`, so it is nameable
+    // here. `NotifyClientLeftView` lives in `crate::types`: `mod types`' own
+    // import of it is private, not a re-export.
+    use super::types::TelegramData;
+    use crate::types::{FromQueryString, NotifyClientLeftView};
+
+    fn left_view(reason_id: i64, reason: &str) -> NotifyClientLeftView {
+        let line = if reason.is_empty() {
+            format!("clid=42 reasonid={reason_id}")
+        } else {
+            format!("clid=42 reasonid={reason_id} reasonmsg={reason}")
+        };
+        NotifyClientLeftView::from_query(&line)
+            .unwrap_or_else(|e| panic!("fixture must parse: {e:?}"))
+    }
+
+    /// Renders via the public `Display` impl. `TelegramData::from_left` is
+    /// private to `mod types`, so build the variant directly.
+    fn render(reason_id: i64, reason: &str) -> String {
+        TelegramData::Left(
+            "2026-01-01 00:00:00".to_string(),
+            left_view(reason_id, reason),
+            "alice".to_string(),
+        )
+        .to_string()
+    }
+
+    #[test]
+    fn renders_every_known_reason_id_without_panicking() {
+        // reasonid=1 previously hit unreachable!() and aborted the Telegram
+        // sender task, silently disabling every later notification.
+        for id in [1i64, 3, 5, 6, 8, 10, 11, 999] {
+            let out = render(id, "bye");
+            assert!(
+                out.contains("alice"),
+                "reasonid={id} produced output without the nickname: {out}"
+            );
+            assert!(
+                out.starts_with("[2026-01-01 00:00:00]"),
+                "reasonid={id} produced output without the timestamp: {out}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_reason_id_preserves_the_id_for_diagnosis() {
+        let out = render(999, "mystery");
+        assert!(out.contains("reasonid=999"), "got {out}");
+        assert!(out.contains("mystery"), "got {out}");
+    }
+
+    #[test]
+    fn reason_id_one_worded_as_voluntary_leave() {
+        let out = render(1, "");
+        assert!(out.contains("left the server"), "got {out}");
+        assert!(
+            !out.contains("):"),
+            "empty reason left a dangling separator: {out}"
+        );
+    }
+
+    /// Every config must end up with a `SafeUserState`, whatever its token
+    /// looks like. A miss previously panicked in bootstrap_controller.
+    #[tokio::test]
+    async fn every_config_gets_a_user_state_entry() {
+        use crate::configure::Config;
+
+        fn write(name: &str, token: &str, server_id: i64) -> std::path::PathBuf {
+            let dir = std::env::temp_dir().join("tsmt-telegram-test");
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join(name);
+            let contents = format!(
+                "[server]\nchannel-id = [1]\nprivilege-group-id = 5\n\
+                 server-id = {server_id}\nleveldb = \"./level.db\"\n\n\
+                 [telegram]\napi-key = \"{token}\"\ntarget = 0\n\n\
+                 [misc]\ninterval = 5\n\n\
+                 [raw-query]\nserver = \"127.0.0.1\"\nport = 10011\n\
+                 user = \"u\"\npassword = \"p\"\n"
+            );
+            std::fs::write(&path, contents).unwrap();
+            path
+        }
+
+        // Distinct server ids, otherwise both configs hash to one id and the
+        // second insert hides the first.
+        let healthy = write("telegram-healthy.toml", "123456:token", 1);
+        let malformed = write("telegram-malformed.toml", "no-colon-here", 2);
+
+        let a = Config::load(healthy.to_str().unwrap()).await.unwrap();
+        let b = Config::load(malformed.to_str().unwrap()).await.unwrap();
+        let configs = vec![(a.get_id(), a), (b.get_id(), b)];
+        let ids: Vec<String> = configs.iter().map(|(id, _)| id.clone()).collect();
+        assert_ne!(ids[0], ids[1], "fixtures must have distinct ids");
+
+        let (_handle, _helper, states) = crate::telegram::telegram_bootstrap(
+            &configs,
+            std::sync::Arc::new(tokio::sync::Notify::new()),
+        )
+        .unwrap();
+
+        for id in &ids {
+            assert!(
+                states.contains_key(id),
+                "no user state registered for config {id}"
+            );
+        }
+    }
+
+    #[test]
+    fn formatter_is_total_over_reason_id_range() {
+        for id in [0i64, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, i64::MAX, -1] {
+            let _ = render(id, "x");
+        }
+    }
+}
