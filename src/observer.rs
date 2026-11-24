@@ -285,11 +285,11 @@ async fn staff(
         return Processor::user_left(line, argument, client_map).await;
     }
 
-    if line.contains("notifyclientmoved") && argument.monitor_channel().valid() {
+    if line.starts_with("notifyclientmoved") && argument.monitor_channel().valid() {
         return Processor::user_move(line, argument).await;
     }
 
-    if line.contains("notifytextmessage") && argument.monitor_channel().valid() {
+    if line.starts_with("notifytextmessage") && argument.monitor_channel().valid() {
         return Processor::user_text(line, argument).await;
     }
     if line.starts_with("banid") {

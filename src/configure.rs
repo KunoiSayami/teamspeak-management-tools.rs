@@ -336,11 +336,21 @@ pub mod config {
             toml::from_str(&buf).map_err(|e| {
                 // Never format the toml error with `{e:?}`: its Debug output
                 // embeds the whole input, which includes raw-query.password.
-                // `message()` is the reason alone. `span()` locates the
-                // offending value, but is degenerate (0..0) for missing
-                // fields and tables, so a position is only reported when it
-                // actually carries information.
+                // `message()` is the reason alone, BUT for serde type errors
+                // the message embeds the offending literal, which may itself
+                // be a credential (e.g. an unquoted numeric password). Strip
+                // the value and keep only the expected type.
                 let message = e.message().to_string();
+                let message = if message.starts_with("invalid type: ") {
+                    match message.find(", expected ") {
+                        Some(pos) => {
+                            format!("invalid type [value omitted]{}", &message[pos..])
+                        }
+                        None => "type mismatch [value omitted]".to_string(),
+                    }
+                } else {
+                    message
+                };
                 match e.span().filter(|span| span.start < span.end) {
                     Some(span) => {
                         // Byte offset to 1-based line and column within it.
@@ -446,6 +456,27 @@ password = "SUPERSECRETVALUE"
         assert!(
             rendered.contains(&format!(":{expected_line}:")),
             "type error should name line {expected_line}, got: {rendered}"
+        );
+    }
+
+    #[tokio::test]
+    async fn secret_field_itself_is_not_echoed_when_it_is_the_invalid_value() {
+        // If password is the mistyped field, serde's invalid_type message
+        // embeds the literal. The redaction must strip it.
+        let contents = "[server]\nchannel-id = [1]\nprivilege-group-id = 5\n\
+                        leveldb = \"./level.db\"\n[telegram]\napi-key = \"\"\ntarget = 0\n\
+                        [misc]\ninterval = 5\n[raw-query]\nserver = \"127.0.0.1\"\n\
+                        port = 10011\nuser = \"serveradmin\"\npassword = 987654321\n";
+        let path = write_temp("secret-as-value.toml", contents);
+        let err = Config::load(path.to_str().unwrap()).await.unwrap_err();
+        let rendered = format!("{err:?}");
+        assert!(
+            !rendered.contains("987654321"),
+            "config error leaked the password value: {rendered}"
+        );
+        assert!(
+            rendered.contains("value omitted"),
+            "redacted error should say the value was omitted: {rendered}"
         );
     }
 
