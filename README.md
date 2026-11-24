@@ -15,15 +15,22 @@ You can receive a message when user enter or left your server on [telegram](http
 
 You should create a configure files in the same directory as work directory.
 
+`config.toml.default` in this repository is a working starting point: copy it to
+`config.toml` and fill in `[raw-query]` and, if you want notifications,
+`[telegram]`. Every section marked with `#` is optional. The default path is
+`config.toml`, which can be overridden with the positional argument.
+
 
 ```toml
 additional = [] # Additional configure filename
 [server]
-server-id = 1 # Server ID
+server-id = 1 # Server ID (optional, defaults to 1)
 channel-id = [1, 2] # Channel ID
 privilege-group-id = 5 # Channel Privilege Group ID
-redis-server = "" # Redis Server Address
-leveldb = "" # LevelDB database file name/path
+# Backend: omit `redis-server` to use LevelDB. Setting it to any value
+# (even "") selects Redis, and an empty value fails at startup.
+# redis-server = "redis://127.0.0.1:6379"
+# leveldb = "./level.db" # LevelDB database file name/path (defaults to ./level.db)
 # track-channel-member = ""
 
 # [mute-porter]
@@ -40,23 +47,23 @@ leveldb = "" # LevelDB database file name/path
 # map = [[125, 75], [133, 60]]
 
 [telegram]
-api-key = ""
-target = 0
-# api-server = ""
+api-key = "" # Leave empty to disable all telegram notifications
+target = 0 # Chat id to send notifications to. 0 disables sending
+# api-server = "" # Defaults to https://api.telegram.org/
 # responsible = false
 # allowed-chat = []
 
 [misc]
-interval = 5 # Interval (milliseconds)
+interval = 5 # Interval (milliseconds), optional, defaults to 5
 
 # [custom-message]
 # move-to-channel = "You have been moved into your channel."
 
 [raw-query]
-server = ""  # TeamSpeak Server Address
-port = 10011 # TeamSpeak ServerQuery(Raw) Port
+server = "127.0.0.1" # TeamSpeak Server Address (optional, defaults to 127.0.0.1). Omit rather than setting "" to use the default
+port = 10011 # TeamSpeak ServerQuery(Raw) Port (optional, defaults to 10011)
 user = "serveradmin" # TeamSpeak ServerQuery Username
-password = "114514" # TeamSpeak ServerQuery Password
+password = "" # TeamSpeak ServerQuery Password, must be filled in
 
 # web-query section removed since 3.0.0
 ```
@@ -64,12 +71,12 @@ password = "114514" # TeamSpeak ServerQuery Password
 |         Name         |      Type      | Required | Description                                                                                                                                                                                                                                                                                                              |
 |:--------------------:|:--------------:|:--------:|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 |      additional      |     array      | Optional | The additional server configure filename part, if you have multiple server to management. You should put strings in this array.                                                                                                                                                                                          |
-|        server        |     table      | Required |                                                                                                                                                                                                                                                                                                                          |
+|        server        |     table      |    Required    |                                                                                                                                                                                                                                                                                                                          |
 |      server-id       |    integer     | Optional | The ID of the server, which you want to get the channel. <br>If there are multiple servers running, you can get the ID via the TeamSpeak 3 Server Query. <br>Generally, the server ID is `1`.                                                                                                                            |
 |      channel-id      | integer, array | Required | The ID of the channel, which you want to listen to.                                                                                                                                                                                                                                                                      |
 |  privilege-group-id  |    integer     | Required | The ID of the privilege group, which will be assigned to user who joins the channel specified by `channel_id`. <br>`5` means Channel Admin Generally.                                                                                                                                                                    |
-|     redis-server     |     string     | Required | Redis Server is optional if `leveldb` is specified. Redis Server Should be like `redis://[<username>][:<password>@]<hostname>[:port][/<db>]`. <br>More information about Redis URL can be found [here](https://docs.rs/redis/latest/redis/#connection-parameters).                                                       |
-|       leveldb        |     string     | Required | Required if redis server is not specified                                                                                                                                                                                                                                                                                |
+|     redis-server     |     string     |    Optional    | Omit to use LevelDB. Setting this to any value, even an empty string, selects Redis and an empty value fails at startup. Redis Server Should be like `redis://[<username>][:<password>@]<hostname>[:port][/<db>]`. <br>More information about Redis URL can be found [here](https://docs.rs/redis/latest/redis/#connection-parameters).                                                       |
+|       leveldb        |     string     |    Optional    | Used when `redis-server` is omitted. Defaults to `./level.db`                                                                                                                                                                                                                                                                                |
 | track-channel-member |     string     | Optional | It will record user membership in specify database (Require `tracker` feature)                                                                                                                                                                                                                                           |
 |     mute-porter      |     table      | Optional | Auto move muter user from one channel to another channel, useful in default channel.                                                                                                                                                                                                                                     |
 |       monitor        |    integer     | Required | Porter monitor channel.                                                                                                                                                                                                                                                                                                  |
@@ -89,8 +96,8 @@ password = "114514" # TeamSpeak ServerQuery Password
 |    custom-message    |     table      | Optional | The message you want to send to the user who joins the channel.                                                                                                                                                                                                                                                          |
 |   move-to-channel    |     string     | Optional | The message you want to send to the user while user is moved to the their channel.                                                                                                                                                                                                                                       |
 |      raw-query       |     table      | Required |                                                                                                                                                                                                                                                                                                                          |
-|        server        |     string     | Required | TeamSpeak Server Address                                                                                                                                                                                                                                                                                                 |
-|         port         |    integer     | Required | TeamSpeak ServerQuery(Raw) Port                                                                                                                                                                                                                                                                                          |
+|        server        |     string     |    Optional    | TeamSpeak Server Address (optional, defaults to 127.0.0.1; omit rather than setting an empty string) |
+|         port         |    integer     |    Optional    | TeamSpeak ServerQuery(Raw) Port                                                                                                                                                                                                                                                                                          |
 |         user         |     string     | Required | TeamSpeak ServerQuery Username                                                                                                                                                                                                                                                                                           |
 |       password       |     string     | Required | TeamSpeak ServerQuery Password                                                                                                                                                                                                                                                                                           |
 
