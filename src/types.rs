@@ -540,6 +540,8 @@ pub mod ban_entry {
         }
     }
 
+    impl FromQueryString for BanEntry {}
+
     #[cfg(test)]
     mod test {
         use super::BanEntry;
@@ -559,12 +561,10 @@ pub mod ban_entry {
         fn test() {
             TEST_STRING
                 .split('|')
-                .map(|s| BanEntry::from_query(s))
-                .for_each(|entry| drop(entry));
+                .map(BanEntry::from_query)
+                .for_each(drop);
         }
     }
-
-    impl FromQueryString for BanEntry {}
 }
 
 mod status_result {

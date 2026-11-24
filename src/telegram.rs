@@ -256,27 +256,6 @@ mod types {
             self.channel_id != 0
         }
     }
-
-    pub(super) struct PoolIter<'a> {
-        name: &'a str,
-        iter: std::slice::Iter<'a, String>,
-    }
-
-    impl<'a> From<(&'a str, std::slice::Iter<'a, String>)> for PoolIter<'a> {
-        fn from(value: (&'a str, std::slice::Iter<'a, String>)) -> Self {
-            Self {
-                name: value.0,
-                iter: value.1,
-            }
-        }
-    }
-    impl<'a> Iterator for PoolIter<'a> {
-        type Item = (&'a str, &'a String);
-
-        fn next(&mut self) -> Option<Self::Item> {
-            self.iter.next().map(|s| (self.name, s))
-        }
-    }
 }
 
 mod thread {
@@ -294,6 +273,9 @@ mod thread {
     use tokio::sync::{Notify, broadcast, mpsc};
 
     const QUERY_BOT_ERROR: &str = "Query bot error";
+
+    // Bot id -> [(config id, allowed chat ids)] for bots that answer commands.
+    type BotResponderMap = HashMap<String, Vec<(String, Vec<i64>)>>;
 
     pub fn telegram_bootstrap(
         configs: &Vec<(String, Config)>,
@@ -385,10 +367,7 @@ mod thread {
         mut bot_map: HashMap<String, (TelegramBot, Vec<(String, TelegramData)>)>,
         config_map: HashMap<String, String>,
         notifier: Arc<Notify>,
-        (user_state, bot_responder): (
-            ConfigMappedUserState,
-            HashMap<String, Vec<(String, Vec<i64>)>>,
-        ),
+        (user_state, bot_responder): (ConfigMappedUserState, BotResponderMap),
     ) -> anyhow::Result<()> {
         if bot_map.is_empty() {
             info!("No configure found, Send to telegram disabled.");
@@ -515,7 +494,7 @@ mod thread {
 
         use crate::{telegram::types::BotType, types::ConfigMappedUserState};
 
-        use super::{TelegramBot, TelegramData};
+        use super::{BotResponderMap, TelegramBot, TelegramData};
 
         #[derive(BotCommands, Clone)]
         #[command(rename_rule = "lowercase")]
@@ -538,7 +517,7 @@ mod thread {
 
             pub async fn spawn(
                 channel_map: ConfigMappedUserState,
-                bots: HashMap<String, Vec<(String, Vec<i64>)>>,
+                bots: BotResponderMap,
                 bot_map: HashMap<String, (TelegramBot, Vec<(String, TelegramData)>)>,
                 exit_signal: broadcast::Receiver<bool>,
             ) -> Self {

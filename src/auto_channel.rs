@@ -84,33 +84,31 @@ pub async fn mute_porter_function(
         if client.client_is_user()
             && client.channel_id() == mute_porter.monitor_channel()
             && !mute_porter.check_whitelist(client.client_database_id())
-        {
-            if let Some(true) = conn
+            && let Some(true) = conn
                 .query_client_info(client.client_id())
                 .await
                 .inspect_err(|e| error!("[{thread_id}] Unable query client information: {e:?}",))
                 .ok()
                 .flatten()
                 .map(|r| r.is_client_muted())
-            {
-                conn.move_client(client.client_id(), mute_porter.target_channel())
-                    .await
-                    .inspect_err(|e| {
-                        error!(
-                            "[{thread_id}] Unable move client {} to channel {}: {e:?}",
-                            client.client_id(),
-                            mute_porter.target_channel(),
-                        )
-                    })
-                    .map(|_| {
-                        info!(
-                            "[{thread_id}] Moved {} to {}",
-                            client.client_id(),
-                            mute_porter.target_channel()
-                        )
-                    })
-                    .ok();
-            }
+        {
+            conn.move_client(client.client_id(), mute_porter.target_channel())
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[{thread_id}] Unable move client {} to channel {}: {e:?}",
+                        client.client_id(),
+                        mute_porter.target_channel(),
+                    )
+                })
+                .map(|_| {
+                    info!(
+                        "[{thread_id}] Moved {} to {}",
+                        client.client_id(),
+                        mute_porter.target_channel()
+                    )
+                })
+                .ok();
         }
     }
     Ok(())
