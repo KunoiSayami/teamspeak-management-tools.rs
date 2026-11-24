@@ -25,10 +25,7 @@ mod inner {
     use tokio::sync::{Notify, mpsc};
     use tuple_conv::RepeatedTuple;
 
-    async fn try_init_connection(
-        config: &Config,
-        sid: i64,
-    ) -> anyhow::Result<(SocketConn, SocketConn)> {
+    async fn try_init_connection(config: &Config, sid: i64) -> anyhow::Result<SocketConn> {
         let retries = if *SYSTEMD_MODE.get().unwrap() {
             //debug!("Systemd mode is present, will retry if connection failed.");
             SYSTEMD_MODE_RETRIES_TIMES
@@ -38,14 +35,7 @@ mod inner {
         for step in 0..retries {
             match init_connection(config.raw_query(), sid).await {
                 Ok(ret) => {
-                    return Ok((
-                        ret,
-                        init_connection(config.raw_query(), sid)
-                            .await
-                            .map_err(|e| {
-                                anyhow!("Got error while create second connection: {e:?}")
-                            })?,
-                    ));
+                    return Ok(ret);
                 }
                 Err(e) => {
                     if retries == SYSTEMD_MODE_RETRIES_TIMES && step < retries - 1 {
@@ -63,7 +53,7 @@ mod inner {
         unreachable!()
     }
 
-    async fn init_connection(cfg: &RawQuery, sid: i64) -> anyhow::Result<SocketConn> {
+    pub(super) async fn init_connection(cfg: &RawQuery, sid: i64) -> anyhow::Result<SocketConn> {
         let mut conn = SocketConn::connect(&cfg.server(), cfg.port()).await?;
         conn.login(cfg.user(), cfg.password())
             .await
@@ -77,7 +67,7 @@ mod inner {
     }
 
     async fn watchdog(
-        conn: (SocketConn, SocketConn),
+        auto_channel_connection: SocketConn,
         config: Config,
         notifier: Arc<Notify>,
         thread_id: String,
@@ -85,8 +75,6 @@ mod inner {
         kv_map: Box<dyn KVMap>,
         user_map: SafeUserState,
     ) -> ClientResult<()> {
-        let (observer_connection, auto_channel_connection) = conn;
-
         let (private_message_sender, private_message_receiver) = mpsc::channel(128);
         let (trigger_sender, trigger_receiver) = mpsc::channel(128);
         //let (telegram_sender, telegram_receiver) = mpsc::channel(4096);
@@ -123,7 +111,8 @@ mod inner {
             AutoChannelInstance::new(config.server().channels(), Some(trigger_sender));
 
         let observer_handler = tokio::spawn(observer_thread(
-            observer_connection,
+            config.raw_query().clone(),
+            config.server().server_id(),
             private_message_receiver,
             telegram_sender,
             auto_channel_instance,
@@ -326,7 +315,20 @@ mod controller {
                 let kv_map = connection.fork().await?;
                 let exit_notify = exit_notify.clone();
                 let arg = controller_arg.clone();
-                let map = user_state_map.get(&config.get_id()).unwrap().clone();
+                let map = match user_state_map.get(&config.get_id()) {
+                    Some(map) => map.clone(),
+                    None => {
+                        // telegram_bootstrap must insert a state for every
+                        // config. A miss here means one was skipped without
+                        // registering, so fail with a name instead of an
+                        // opaque Option::unwrap panic.
+                        anyhow::bail!(
+                            "No user state registered for config {}; telegram_bootstrap must \
+                             insert SafeUserState for every config",
+                            config.get_id()
+                        );
+                    }
+                };
                 v.push(Controller::new(Box::pin(async move {
                     let result = bootstrap(config, thread_id.clone(), arg, kv_map, map).await;
                     exit_notify.notify_waiters();
@@ -343,6 +345,17 @@ mod controller {
     }
 }
 
+/// Connects, authenticates and selects the virtual server.
+///
+/// Exposed so the observer can re-establish its own connection after a
+/// disconnect without duplicating the login sequence.
+pub(crate) async fn connect_raw(
+    cfg: &crate::configure::config::RawQuery,
+    sid: i64,
+) -> anyhow::Result<SocketConn> {
+    inner::init_connection(cfg, sid).await
+}
+
 pub static SYSTEMD_MODE: OnceLock<bool> = OnceLock::new();
 const SYSTEMD_MODE_RETRIES_TIMES: u32 = 3;
 
@@ -350,3 +363,5 @@ use std::sync::OnceLock;
 
 pub use controller::Controller;
 use types::ClientResult;
+
+use crate::socketlib::SocketConn;

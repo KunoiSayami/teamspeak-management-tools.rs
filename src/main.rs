@@ -21,9 +21,45 @@ const DEFAULT_LEVEL_DB_LOCATION: &str = "./level.db";
 pub static OBSERVER_NICKNAME_OVERRIDE: OnceLock<String> = OnceLock::new();
 pub static AUTO_CHANNEL_NICKNAME_OVERRIDE: OnceLock<String> = OnceLock::new();
 
+/// Waits for the next shutdown signal: SIGINT, or SIGTERM on Unix.
+///
+/// Both handles are created once and reused. tokio's `ctrl_c()` is an async
+/// fn rather than a handle, and on Unix tokio installs the OS handler on
+/// first registration and never resets it, so re-registering per call is
+/// both pointless and a failure mode.
+#[cfg(unix)]
+async fn wait_for_shutdown_signal(
+    sigint: &mut tokio::signal::unix::Signal,
+    sigterm: &mut tokio::signal::unix::Signal,
+) {
+    tokio::select! {
+        _ = sigint.recv() => {}
+        _ = sigterm.recv() => {}
+    }
+}
+
+#[cfg(not(unix))]
+async fn wait_for_shutdown_signal(_sigint: &mut (), _sigterm: &mut ()) {
+    tokio::signal::ctrl_c().await.ok();
+}
+
 async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()> {
     let notify = Arc::new(Notify::new());
     let exit_notify = Arc::new(Notify::new());
+
+    #[cfg(unix)]
+    let (mut sigint, mut sigterm) = {
+        use tokio::signal::unix::{SignalKind, signal};
+        // If SIGTERM cannot be installed, still honour SIGINT rather than
+        // failing startup: losing graceful shutdown must not stop the daemon.
+        let sigterm = signal(SignalKind::terminate())
+            .or_else(|_| signal(SignalKind::interrupt()))
+            .expect("shutdown signal handler must install");
+        let sigint = signal(SignalKind::interrupt()).expect("SIGINT handler must install");
+        (sigint, sigterm)
+    };
+    #[cfg(not(unix))]
+    let (mut sigint, mut sigterm) = ((), ());
 
     SYSTEMD_MODE.set(systemd_mode).unwrap();
 
@@ -32,13 +68,14 @@ async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()
 
     tokio::select! {
         _ = async {
-            tokio::signal::ctrl_c().await.unwrap();
-            // First ctrl_c signal
+            // First signal: ask every controller to shut down gracefully.
+            wait_for_shutdown_signal(&mut sigint, &mut sigterm).await;
             notify.notify_waiters();
-            tokio::signal::ctrl_c().await.unwrap();
-            // Notify again
+            // Second: tell them to stop waiting for their children.
+            wait_for_shutdown_signal(&mut sigint, &mut sigterm).await;
             notify.notify_waiters();
-            tokio::signal::ctrl_c().await.unwrap();
+            // Third: give up on graceful shutdown.
+            wait_for_shutdown_signal(&mut sigint, &mut sigterm).await;
             error!("Force exit!");
             std::process::exit(137);
         } => {
@@ -77,8 +114,28 @@ async fn start_services(config: String, systemd_mode: bool) -> anyhow::Result<()
     Ok(())
 }
 
+/// Maps the number of `-d` flags to a base log level.
+///
+/// `from_default_env` defaults to `error` when RUST_LOG is unset, so without
+/// this `-d` had no effect at all.
+fn level_for_debug_count(count: u8) -> LevelFilter {
+    match count {
+        0 => LevelFilter::Info,
+        1 => LevelFilter::Debug,
+        _ => LevelFilter::Trace,
+    }
+}
+
 fn build_logger(count: u8, systemd_mode: bool) {
     let mut builder = env_logger::Builder::from_default_env();
+    // An empty RUST_LOG counts as unset: `RUST_LOG= cmd` would otherwise keep
+    // env_logger's `error` default and make -d look broken.
+    let rust_log_unset = std::env::var("RUST_LOG")
+        .map(|v| v.trim().is_empty())
+        .unwrap_or(true);
+    if rust_log_unset {
+        builder.filter_level(level_for_debug_count(count));
+    }
     if count < 1 {
         builder.filter_module("sqlx", LevelFilter::Warn);
     }
@@ -135,4 +192,18 @@ fn main() -> anyhow::Result<()> {
         .block_on(start_services(configure.clone(), systemd_mode))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::level_for_debug_count;
+    use log::LevelFilter;
+
+    #[test]
+    fn debug_count_maps_to_levels() {
+        assert_eq!(level_for_debug_count(0), LevelFilter::Info);
+        assert_eq!(level_for_debug_count(1), LevelFilter::Debug);
+        assert_eq!(level_for_debug_count(2), LevelFilter::Trace);
+        assert_eq!(level_for_debug_count(200), LevelFilter::Trace);
+    }
 }

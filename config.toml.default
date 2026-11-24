@@ -3,8 +3,10 @@
 # server-id = 1
 channel-id = [1, 2]
 privilege-group-id = 5
-# redis-server = ""
-# leveldb = ""
+# Backend: omit `redis-server` to use LevelDB. Setting it to any value
+# (even "") selects Redis, and an empty value fails at startup.
+# leveldb = "./level.db"
+# redis-server = "redis://127.0.0.1:6379"
 # track-channel-member = ""
 
 # [mute-porter]
@@ -25,7 +27,9 @@ privilege-group-id = 5
 # map = [[86, 75]]
 
 [telegram]
+# Leave empty to disable all telegram notifications.
 api-key = ""
+# Chat id to send notifications to. 0 disables sending.
 target = 0
 # api-server = ""
 # responsible = false
@@ -38,8 +42,10 @@ target = 0
 # [custom-message]
 # move-to-channel = "You have been moved into your channel."
 
-# [raw-query]
-# server = ""
-# port = 10011
-# user = "serveradmin"
-# password = "114514"
+[raw-query]
+# Required. Omit `server` to connect to 127.0.0.1; an empty string is not the
+# same thing and is passed to the network layer verbatim.
+# server = "127.0.0.1"
+port = 10011
+user = "serveradmin"
+password = ""
